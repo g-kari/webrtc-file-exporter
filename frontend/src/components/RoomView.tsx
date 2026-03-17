@@ -22,6 +22,8 @@ export default function RoomView({ roomId }: Props) {
   const senderRef = useRef<FileSender | null>(null);
   const receiverRef = useRef<FileReceiver | null>(null);
   const iceServersRef = useRef<RTCIceServer[]>([]);
+  /** 受信ファイルの Blob URL を追跡してリーク防止に使用する */
+  const blobUrlsRef = useRef<Map<string, string>>(new Map());
 
   const updateFile = useCallback((id: string, updates: Partial<TransferFile>) => {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
@@ -37,6 +39,7 @@ export default function RoomView({ roomId }: Props) {
     });
 
     receiver.onComplete((fileId, blobUrl, metadata) => {
+      blobUrlsRef.current.set(fileId, blobUrl);
       setFiles((prev) => {
         const exists = prev.some((f) => f.id === fileId);
         if (!exists) {
@@ -184,6 +187,11 @@ export default function RoomView({ roomId }: Props) {
       cancelled = true;
       signalingRef.current?.disconnect();
       pcRef.current?.close();
+      // Blob URL をすべて解放してメモリリークを防ぐ
+      for (const url of blobUrlsRef.current.values()) {
+        URL.revokeObjectURL(url);
+      }
+      blobUrlsRef.current.clear();
     };
   }, [roomId, setupDataChannel]);
 
@@ -225,6 +233,15 @@ export default function RoomView({ roomId }: Props) {
 
   const dataChannelReady = rtcState === 'connected';
 
+  /** ダウンロードリンクがクリックされたら Blob URL を解放する */
+  const handleDownload = useCallback((fileId: string) => {
+    const url = blobUrlsRef.current.get(fileId);
+    if (url) {
+      URL.revokeObjectURL(url);
+      blobUrlsRef.current.delete(fileId);
+    }
+  }, []);
+
   return (
     <div className="flex flex-col gap-6">
       <ConnectionStatus wsState={wsState} rtcState={rtcState} />
@@ -256,7 +273,7 @@ export default function RoomView({ roomId }: Props) {
         <FileDrop onFiles={(f) => void handleFiles(f)} />
       )}
 
-      <FileList files={files} />
+      <FileList files={files} onDownload={handleDownload} />
     </div>
   );
 }

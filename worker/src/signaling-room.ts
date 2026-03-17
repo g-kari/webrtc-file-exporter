@@ -78,6 +78,13 @@ export class SignalingRoom extends DurableObject {
 
     switch (data.type) {
       case "join": {
+        // 既に join 済みの場合は冪等に再送して終了
+        if (currentPeerId) {
+          this.log(`join 重複受信 peerId=${currentPeerId} — 無視`);
+          ws.send(JSON.stringify({ type: "joined", peerId: currentPeerId }));
+          break;
+        }
+
         const peerId = crypto.randomUUID();
         ws.serializeAttachment({ peerId } satisfies PeerAttachment);
         this.peers.set(peerId, ws);
@@ -117,6 +124,8 @@ export class SignalingRoom extends DurableObject {
           for (const peerWs of this.peers.values()) {
             peerWs.send(JSON.stringify({ type: "leave", peerId: currentPeerId }));
           }
+          // WebSocket を明示的に閉じてスロットを解放する
+          ws.close(1000, "leave");
         }
         break;
       }

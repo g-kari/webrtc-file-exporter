@@ -21,15 +21,27 @@ export default {
 
     console.log(`[Worker ${reqId}] ${request.method} ${url.pathname} cf=${JSON.stringify(request.cf?.colo)}`);
 
-    // CORS ヘッダー設定（開発時用）
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
+    // CORS ヘッダー設定（同一オリジンのみ許可）
+    const ownOrigin = `${url.protocol}//${url.host}`;
+    const requestOrigin = request.headers.get("Origin");
+    const corsOrigin = (!requestOrigin || requestOrigin === ownOrigin) ? ownOrigin : null;
+
+    const corsHeaders: Record<string, string> = {
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
+      "Vary": "Origin",
     };
+    if (corsOrigin) {
+      corsHeaders["Access-Control-Allow-Origin"] = corsOrigin;
+    }
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    // 異なるオリジンからの API アクセスを拒否
+    if (requestOrigin && requestOrigin !== ownOrigin) {
+      return new Response("Forbidden", { status: 403 });
     }
 
     // API ルーティング
@@ -42,7 +54,11 @@ export default {
         );
         console.log(`[Worker ${reqId}] TURN クレデンシャル生成完了`);
         return new Response(JSON.stringify(credentials), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+          },
         });
       } catch (error) {
         console.error(`[Worker ${reqId}] TURN クレデンシャル取得エラー:`, error);

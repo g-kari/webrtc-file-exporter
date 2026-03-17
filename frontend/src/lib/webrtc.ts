@@ -13,6 +13,9 @@ export class PeerConnection {
   private messageHandlers: DataChannelMessageHandler[] = [];
   private openHandlers: (() => void)[] = [];
   private closeHandlers: (() => void)[] = [];
+  /** remoteDescription が設定されるまで ICE candidate をバッファリングする */
+  private pendingIceCandidates: RTCIceCandidateInit[] = [];
+  private remoteDescriptionSet = false;
 
   constructor(
     iceServers: RTCIceServer[],
@@ -109,6 +112,8 @@ export class PeerConnection {
   async handleOffer(sdp: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
     log('handleOffer — remoteDescription set');
     await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    this.remoteDescriptionSet = true;
+    await this.flushPendingIceCandidates();
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
     log('Answer 生成完了 / localDescription set');
@@ -119,18 +124,38 @@ export class PeerConnection {
   async handleAnswer(sdp: RTCSessionDescriptionInit): Promise<void> {
     log('handleAnswer — remoteDescription set');
     await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    this.remoteDescriptionSet = true;
+    await this.flushPendingIceCandidates();
   }
 
-  /** ICE 候補を追加する */
+  /** ICE 候補を追加する（remoteDescription 未設定時はバッファリング） */
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    if (!this.remoteDescriptionSet) {
+      log('ICE candidate バッファリング（remoteDescription 未設定）:', candidate.candidate);
+      this.pendingIceCandidates.push(candidate);
+      return;
+    }
     log('ICE candidate 追加:', candidate.candidate);
     await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
   }
 
+  /** バッファリングされた ICE candidate を一括追加する */
+  private async flushPendingIceCandidates(): Promise<void> {
+    const candidates = this.pendingIceCandidates.splice(0);
+    for (const candidate of candidates) {
+      log('ICE candidate フラッシュ:', candidate.candidate);
+      await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+    }
+  }
+
   /** DataChannel でデータを送信する */
   send(data: string | ArrayBuffer): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.dataChannel?.send(data as any);
+    if (!this.dataChannel) return;
+    if (typeof data === 'string') {
+      this.dataChannel.send(data);
+    } else {
+      this.dataChannel.send(data);
+    }
   }
 
   /** DataChannel のバッファ量を取得する */
@@ -143,12 +168,23 @@ export class PeerConnection {
     if (!this.dataChannel) return Promise.resolve();
     if (this.dataChannel.bufferedAmount <= threshold) return Promise.resolve();
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       if (!this.dataChannel) return resolve();
       this.dataChannel.bufferedAmountLowThreshold = threshold;
-      this.dataChannel.addEventListener('bufferedamountlow', () => {
-        resolve();
-      }, { once: true });
+
+      const onLow = () => { cleanup(); resolve(); };
+      const onClose = () => { cleanup(); resolve(); };
+      const onError = (e: Event) => { cleanup(); reject(e); };
+
+      const cleanup = () => {
+        this.dataChannel?.removeEventListener('bufferedamountlow', onLow);
+        this.dataChannel?.removeEventListener('close', onClose);
+        this.dataChannel?.removeEventListener('error', onError);
+      };
+
+      this.dataChannel.addEventListener('bufferedamountlow', onLow, { once: true });
+      this.dataChannel.addEventListener('close', onClose, { once: true });
+      this.dataChannel.addEventListener('error', onError, { once: true });
     });
   }
 
