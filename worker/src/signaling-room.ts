@@ -3,9 +3,13 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./index";
 
-// シグナリングメッセージの型定義
+// ルームの最大収容人数
+const MAX_ROOM_PEERS = 2;
+
+// シグナリングメッセージの型定義（クライアント → Worker 受信分）
+type IncomingMessageType = "join" | "offer" | "answer" | "ice-candidate" | "leave";
 interface SignalingMessage {
-  type: "join" | "peer-joined" | "offer" | "answer" | "ice-candidate" | "leave";
+  type: IncomingMessageType;
   peerId?: string;
   sdp?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
@@ -41,8 +45,8 @@ export class SignalingRoom extends DurableObject {
     const activePeers = this.ctx.getWebSockets();
     this.log(`fetch — 現在の接続数: ${activePeers.length}`);
 
-    // ルーム最大2名制限
-    if (activePeers.length >= 2) {
+    // ルーム満員チェック
+    if (activePeers.length >= MAX_ROOM_PEERS) {
       this.log("ルーム満員 → accept して room-full 送信後 close");
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
@@ -83,7 +87,7 @@ export class SignalingRoom extends DurableObject {
 
     switch (data.type) {
       case "join": {
-        // 既に join 済みの場合は冪等に再送して終了
+        // 既に join 済みの場合は冪等に応答して終了
         if (currentPeerId) {
           this.log(`join 重複受信 peerId=${currentPeerId} — 無視`);
           ws.send(JSON.stringify({ type: "joined", peerId: currentPeerId }));
@@ -100,7 +104,6 @@ export class SignalingRoom extends DurableObject {
         for (const [existingPeerId, existingWs] of this.peers.entries()) {
           if (existingPeerId !== peerId) {
             // 先入室者にのみ peer-joined を通知 → 先入室者が Offer を生成する
-            // 新規参入者には送らない（Offer を受け取ってから Answer を返す）
             this.log(`peer-joined 通知 → 先入室者 ${existingPeerId} のみ`);
             existingWs.send(JSON.stringify({ type: "peer-joined", peerId }));
           }
@@ -139,7 +142,6 @@ export class SignalingRoom extends DurableObject {
           for (const peerWs of this.peers.values()) {
             peerWs.send(JSON.stringify({ type: "leave", peerId: currentPeerId }));
           }
-          // WebSocket を明示的に閉じてスロットを解放する
           ws.close(1000, "leave");
         }
         break;
@@ -153,7 +155,7 @@ export class SignalingRoom extends DurableObject {
     const peerId = attachment?.peerId ?? "";
     this.log(`WS切断 peerId=${peerId || "(未join)"} code=${code} reason=${reason}`);
 
-    if (peerId) {
+    if (peerId && this.peers.has(peerId)) {
       this.peers.delete(peerId);
       for (const peerWs of this.peers.values()) {
         peerWs.send(JSON.stringify({ type: "leave", peerId }));
@@ -165,6 +167,6 @@ export class SignalingRoom extends DurableObject {
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     const attachment = ws.deserializeAttachment() as PeerAttachment | null;
     console.error(`[DO] WebSocket エラー peerId=${attachment?.peerId ?? "(未join)"}:`, error);
-    await this.webSocketClose(ws, 1011, "error");
+    // webSocketClose は Cloudflare Workers が自動的に呼び出すためここでは呼ばない
   }
 }

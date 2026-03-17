@@ -11,11 +11,13 @@ interface ReceivingFile {
   received: number;
 }
 
+type StartHandler = (metadata: FileMetadata) => void;
 type ProgressHandler = (fileId: string, transferred: number) => void;
 type CompleteHandler = (fileId: string, blobUrl: string, metadata: FileMetadata) => void;
 
 export class FileReceiver {
   private receivingFiles: Map<string, ReceivingFile> = new Map();
+  private startHandlers: StartHandler[] = [];
   private progressHandlers: ProgressHandler[] = [];
   private completeHandlers: CompleteHandler[] = [];
 
@@ -64,6 +66,7 @@ export class FileReceiver {
         chunks: [],
         received: 0,
       });
+      this.startHandlers.forEach((h) => h(metadata));
     } else if (message.type === 'file-end') {
       // ファイル受信完了
       const fileId = message.fileId;
@@ -89,6 +92,11 @@ export class FileReceiver {
     file.chunks.push(data);
     file.received += data.byteLength;
     this.progressHandlers.forEach((h) => h(file.metadata.fileId, file.received));
+  }
+
+  /** 受信開始ハンドラを登録する */
+  onStart(handler: StartHandler): void {
+    this.startHandlers.push(handler);
   }
 
   /** 進捗ハンドラを登録する */
