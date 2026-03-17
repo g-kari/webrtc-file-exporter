@@ -1,7 +1,8 @@
 // RTCPeerConnection 管理
 
-const log = (...args: unknown[]) =>
-  console.log(`[WebRTC ${new Date().toISOString()}]`, ...args);
+const log = (...args: unknown[]) => {
+  if (import.meta.env.DEV) console.log(`[WebRTC ${new Date().toISOString()}]`, ...args);
+};
 const warn = (...args: unknown[]) =>
   console.warn(`[WebRTC ${new Date().toISOString()}]`, ...args);
 
@@ -33,8 +34,10 @@ export class PeerConnection {
     this.pc.oniceconnectionstatechange = () => {
       const s = this.pc.iceConnectionState;
       log('ICE connection state:', s);
-      if (s === 'failed' || s === 'disconnected' || s === 'closed') {
-        warn('ICE 接続失敗/切断:', s);
+      // disconnected は一時的な状態（再接続可能）のため closeHandlers を発火しない
+      // failed / closed の場合のみセッション終了とみなす
+      if (s === 'failed' || s === 'closed') {
+        warn('ICE 接続失敗:', s);
         this.closeHandlers.forEach((h) => h());
       }
     };
@@ -148,7 +151,12 @@ export class PeerConnection {
     const candidates = this.pendingIceCandidates.splice(0);
     for (const candidate of candidates) {
       log('ICE candidate フラッシュ:', candidate.candidate);
-      await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+      try {
+        await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        // ICE candidate 追加失敗は接続を破棄するほどではない（警告のみ）
+        warn('ICE candidate フラッシュ失敗（継続）:', e);
+      }
     }
   }
 
@@ -158,7 +166,7 @@ export class PeerConnection {
     if (typeof data === 'string') {
       this.dataChannel.send(data);
     } else {
-      this.dataChannel.send(data);
+      this.dataChannel.send(data as ArrayBuffer);
     }
   }
 
@@ -177,7 +185,8 @@ export class PeerConnection {
       this.dataChannel.bufferedAmountLowThreshold = threshold;
 
       const onLow = () => { cleanup(); resolve(); };
-      const onClose = () => { cleanup(); resolve(); };
+      // DataChannel が転送中に閉じた場合はエラーとして扱う（正常完了ではない）
+      const onClose = () => { cleanup(); reject(new Error('DataChannel が転送中に閉じました')); };
       const onError = (e: Event) => { cleanup(); reject(e); };
 
       const cleanup = () => {

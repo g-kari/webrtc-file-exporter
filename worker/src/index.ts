@@ -73,6 +73,11 @@ export default {
     const wsMatch = url.pathname.match(/^\/api\/room\/([^/]+)\/ws$/);
     if (wsMatch) {
       const roomId = wsMatch[1];
+      // UUID 形式のみ許可（任意文字列による DO 名前空間汚染を防ぐ）
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!UUID_RE.test(roomId)) {
+        return new Response("不正なルームIDです", { status: 400 });
+      }
       const upgradeHeader = request.headers.get("Upgrade");
 
       if (upgradeHeader !== "websocket") {

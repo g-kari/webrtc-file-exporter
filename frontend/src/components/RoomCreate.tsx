@@ -13,9 +13,13 @@ export default function RoomCreate() {
 
   const copyUrl = async () => {
     if (!shareUrl) return;
-    await navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // HTTP環境やブラウザ権限拒否時のフォールバック（手動コピーを促す）
+    }
   };
 
   return (

@@ -2,6 +2,9 @@
 
 import type { FileMetadata } from '../types';
 
+// 受信ファイルの最大サイズ（2GB）：メモリ枯渇 DoS を防ぐ
+const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024;
+
 interface ReceivingFile {
   metadata: FileMetadata;
   chunks: ArrayBuffer[];
@@ -36,8 +39,26 @@ export class FileReceiver {
     }
 
     if (message.type === 'file-start') {
-      // 新規ファイル受信開始
-      const metadata = message as FileMetadata;
+      // メタデータの必須フィールドを検証（相手が偽造した値での無効アクセスを防ぐ）
+      if (
+        typeof message.name !== 'string' ||
+        typeof message.size !== 'number' ||
+        typeof message.mimeType !== 'string'
+      ) {
+        return;
+      }
+      // ファイルサイズ上限チェック
+      if (message.size > MAX_FILE_SIZE) {
+        return;
+      }
+      // 型安全にメタデータを構築
+      const metadata: FileMetadata = {
+        type: 'file-start',
+        fileId: message.fileId,
+        name: message.name,
+        size: message.size,
+        mimeType: message.mimeType,
+      };
       this.receivingFiles.set(metadata.fileId, {
         metadata,
         chunks: [],
@@ -59,12 +80,15 @@ export class FileReceiver {
   private handleChunk(data: ArrayBuffer): void {
     // 最後に受信中のファイルにチャンクを追加
     // （シンプルな実装: 同時転送は1ファイルのみ想定）
-    for (const file of this.receivingFiles.values()) {
-      file.chunks.push(data);
-      file.received += data.byteLength;
-      this.progressHandlers.forEach((h) => h(file.metadata.fileId, file.received));
-      break;
+    const file = this.receivingFiles.values().next().value;
+    if (!file) return;
+    // 宣言サイズ超過チェック：悪意ある相手による無制限データ送信を防ぐ
+    if (file.received + data.byteLength > file.metadata.size + 1024) {
+      return;
     }
+    file.chunks.push(data);
+    file.received += data.byteLength;
+    this.progressHandlers.forEach((h) => h(file.metadata.fileId, file.received));
   }
 
   /** 進捗ハンドラを登録する */

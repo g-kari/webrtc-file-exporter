@@ -15,7 +15,8 @@ function FilePreview({ file }: { file: TransferFile }) {
   if (!file.blobUrl) return null;
   const t = file.type;
 
-  if (t.startsWith('image/')) {
+  // SVG は <img> タグ経由でもスクリプト実行の可能性があるためプレビュー対象から除外
+  if (t.startsWith('image/') && t !== 'image/svg+xml') {
     return <img src={file.blobUrl} alt={file.name} className="mt-2 max-h-48 rounded" />;
   }
   if (t.startsWith('video/')) {
@@ -58,7 +59,7 @@ export default function FileList({ files, onDownload }: Props) {
                 <FilePreview file={file} />
                 <a
                   href={file.blobUrl}
-                  download={file.name}
+                  download={file.name.replace(/[/\\:*?"<>|]/g, '_')}
                   className="mt-2 inline-block text-xs text-blue-400 hover:text-blue-300"
                   onClick={() => { setTimeout(() => onDownload?.(file.id), 0); }}
                 >

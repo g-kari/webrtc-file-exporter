@@ -2,8 +2,9 @@
 
 import type { SignalingMessage } from '../types';
 
-const log = (...args: unknown[]) =>
-  console.log(`[Signaling ${new Date().toISOString()}]`, ...args);
+const log = (...args: unknown[]) => {
+  if (import.meta.env.DEV) console.log(`[Signaling ${new Date().toISOString()}]`, ...args);
+};
 const warn = (...args: unknown[]) =>
   console.warn(`[Signaling ${new Date().toISOString()}]`, ...args);
 
@@ -26,31 +27,46 @@ export class SignalingClient {
       this.ws = new WebSocket(url);
       this.ws.binaryType = 'arraybuffer';
 
+      // onerror → onclose の二重発火を防ぐためのフラグ
+      let settled = false;
+
       this.ws.onopen = () => {
         log('WS 接続確立 ✅');
+        settled = true;
         resolve();
       };
       this.ws.onerror = (e) => {
         warn('WS エラー:', e);
-        reject(new Error(`WebSocket 接続エラー: ${String(e)}`));
+        if (!settled) {
+          settled = true;
+          reject(new Error(`WebSocket 接続エラー: ${String(e)}`));
+        }
       };
       this.ws.onmessage = (event) => {
         try {
-          const raw = JSON.parse(event.data as string) as { type: string };
+          if (typeof event.data !== 'string') return;
+          const raw = JSON.parse(event.data) as { type: string };
           log('受信 ←', raw.type, JSON.stringify(raw));
           if (raw.type === 'room-full') {
             this.roomFullHandlers.forEach((h) => h());
             return;
           }
           const message = raw as unknown as SignalingMessage;
-          this.messageHandlers.forEach((h) => h(message));
+          this.messageHandlers.forEach((h) => {
+            Promise.resolve(h(message)).catch((e: unknown) => {
+              warn('onMessage ハンドラエラー:', e);
+            });
+          });
         } catch {
           warn('JSON パース失敗:', event.data);
         }
       };
       this.ws.onclose = (e) => {
         log('WS 切断 code:', e.code, 'reason:', e.reason);
-        this.closeHandlers.forEach((h) => h());
+        // 接続確立後の切断のみ closeHandlers を発火
+        if (settled) {
+          this.closeHandlers.forEach((h) => h());
+        }
       };
     });
   }

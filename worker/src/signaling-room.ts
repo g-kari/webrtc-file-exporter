@@ -111,6 +111,16 @@ export class SignalingRoom extends DurableObject {
       case "offer":
       case "answer":
       case "ice-candidate": {
+        // SDP サイズ上限チェック（64KB）：巨大ペイロードによるメモリ枯渇を防ぐ
+        if (data.sdp && JSON.stringify(data.sdp).length > 65536) {
+          console.warn("[DO] SDP が大きすぎます — 中継を拒否");
+          break;
+        }
+        // ICE candidate サイズ上限チェック（4KB）
+        if (data.candidate && JSON.stringify(data.candidate).length > 4096) {
+          console.warn("[DO] ICE candidate が大きすぎます — 中継を拒否");
+          break;
+        }
         let relayCount = 0;
         for (const [peerId, peerWs] of this.peers.entries()) {
           if (peerId !== currentPeerId) {

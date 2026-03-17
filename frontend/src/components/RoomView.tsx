@@ -238,9 +238,13 @@ export default function RoomView({ roomId }: Props) {
   const shareUrl = `${window.location.origin}/#/${roomId}`;
 
   const copyUrl = async () => {
-    await navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // HTTP環境やブラウザ権限拒否時のフォールバック（手動コピーを促す）
+    }
   };
 
   const dataChannelReady = rtcState === 'connected';
