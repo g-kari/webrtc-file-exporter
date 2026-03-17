@@ -67,9 +67,12 @@ export function useFileTransfer() {
   const handleFiles = useCallback(async (newFiles: File[]) => {
     if (!senderRef.current) return;
 
-    for (const file of newFiles) {
-      const fileId = crypto.randomUUID();
-      setFiles((prev) => [...prev, {
+    // 全ファイルを先にリストに追加してから並列送信
+    const transfers = newFiles.map((file) => ({ file, fileId: crypto.randomUUID() }));
+
+    setFiles((prev) => [
+      ...prev,
+      ...transfers.map(({ file, fileId }) => ({
         id: fileId,
         name: file.name,
         size: file.size,
@@ -77,17 +80,21 @@ export function useFileTransfer() {
         state: 'pending' as const,
         transferred: 0,
         direction: 'send' as const,
-      }]);
+      })),
+    ]);
 
-      try {
-        await senderRef.current.send(file, fileId, (transferred) => {
-          updateFile(fileId, { transferred, state: 'transferring' });
-        });
-        updateFile(fileId, { state: 'completed', transferred: file.size });
-      } catch {
-        updateFile(fileId, { state: 'error' });
-      }
-    }
+    await Promise.all(
+      transfers.map(async ({ file, fileId }) => {
+        try {
+          await senderRef.current!.send(file, fileId, (transferred) => {
+            updateFile(fileId, { transferred, state: 'transferring' });
+          });
+          updateFile(fileId, { state: 'completed', transferred: file.size });
+        } catch {
+          updateFile(fileId, { state: 'error' });
+        }
+      })
+    );
   }, [updateFile]);
 
   const handleDownload = useCallback((fileId: string) => {

@@ -1,6 +1,7 @@
 // ファイル受信：チャンク蓄積 → Blob ダウンロード
 
 import type { FileMetadata } from '../types';
+import { FILE_ID_HEADER_SIZE } from './file-sender';
 
 // 受信ファイルの最大サイズ（2GB）：メモリ枯渇 DoS を防ぐ
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024;
@@ -24,10 +25,8 @@ export class FileReceiver {
   /** DataChannel メッセージを処理する */
   handleMessage(data: string | ArrayBuffer): void {
     if (typeof data === 'string') {
-      // JSON 制御メッセージ
       this.handleControlMessage(data);
     } else {
-      // バイナリチャンク
       this.handleChunk(data);
     }
   }
@@ -68,7 +67,6 @@ export class FileReceiver {
       });
       this.startHandlers.forEach((h) => h(metadata));
     } else if (message.type === 'file-end') {
-      // ファイル受信完了
       const fileId = message.fileId;
       const file = this.receivingFiles.get(fileId);
       if (!file) return;
@@ -81,17 +79,23 @@ export class FileReceiver {
   }
 
   private handleChunk(data: ArrayBuffer): void {
-    // 最後に受信中のファイルにチャンクを追加
-    // （シンプルな実装: 同時転送は1ファイルのみ想定）
-    const file = this.receivingFiles.values().next().value;
+    // バイナリフレーム構造: [36バイト fileId][チャンクデータ]
+    if (data.byteLength <= FILE_ID_HEADER_SIZE) return;
+
+    const fileId = new TextDecoder().decode(data.slice(0, FILE_ID_HEADER_SIZE));
+    const chunk = data.slice(FILE_ID_HEADER_SIZE);
+
+    const file = this.receivingFiles.get(fileId);
     if (!file) return;
+
     // 宣言サイズ超過チェック：悪意ある相手による無制限データ送信を防ぐ
-    if (file.received + data.byteLength > file.metadata.size + 1024) {
+    if (file.received + chunk.byteLength > file.metadata.size + 1024) {
       return;
     }
-    file.chunks.push(data);
-    file.received += data.byteLength;
-    this.progressHandlers.forEach((h) => h(file.metadata.fileId, file.received));
+
+    file.chunks.push(chunk);
+    file.received += chunk.byteLength;
+    this.progressHandlers.forEach((h) => h(fileId, file.received));
   }
 
   /** 受信開始ハンドラを登録する */
