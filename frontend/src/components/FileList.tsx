@@ -2,6 +2,7 @@ import type { TransferFile } from '../types';
 
 interface Props {
   files: TransferFile[];
+  onDownload?: (fileId: string) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -26,7 +27,7 @@ function FilePreview({ file }: { file: TransferFile }) {
   return null;
 }
 
-export default function FileList({ files }: Props) {
+export default function FileList({ files, onDownload }: Props) {
   if (files.length === 0) return null;
 
   return (
@@ -59,6 +60,7 @@ export default function FileList({ files }: Props) {
                   href={file.blobUrl}
                   download={file.name}
                   className="mt-2 inline-block text-xs text-blue-400 hover:text-blue-300"
+                  onClick={() => { setTimeout(() => onDownload?.(file.id), 0); }}
                 >
                   ダウンロード
                 </a>
