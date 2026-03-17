@@ -87,9 +87,10 @@ export class SignalingRoom extends DurableObject {
 
         for (const [existingPeerId, existingWs] of this.peers.entries()) {
           if (existingPeerId !== peerId) {
-            this.log(`peer-joined 通知 → ${existingPeerId}（既存）と ${peerId}（新規）に相互通知`);
+            // 先入室者にのみ peer-joined を通知 → 先入室者が Offer を生成する
+            // 新規参入者には送らない（Offer を受け取ってから Answer を返す）
+            this.log(`peer-joined 通知 → 先入室者 ${existingPeerId} のみ`);
             existingWs.send(JSON.stringify({ type: "peer-joined", peerId }));
-            ws.send(JSON.stringify({ type: "peer-joined", peerId: existingPeerId }));
           }
         }
         break;
