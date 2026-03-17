@@ -1,0 +1,18 @@
+name = "webrtc-file-exporter"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+
+[[durable_objects.bindings]]
+name = "SIGNALING_ROOM"
+class_name = "SignalingRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SignalingRoom"]
+
+[assets]
+directory = "../frontend/dist"
+
+[[routes]]
+pattern = "webrtc-file-exporter.0g0.xyz/*"
+custom_domain = true
