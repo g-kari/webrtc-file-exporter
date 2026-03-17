@@ -14,5 +14,5 @@ new_sqlite_classes = ["SignalingRoom"]
 directory = "../frontend/dist"
 
 [[routes]]
-pattern = "webrtc-file-exporter.0g0.xyz/*"
+pattern = "webrtc-file-exporter.0g0.xyz"
 custom_domain = true
