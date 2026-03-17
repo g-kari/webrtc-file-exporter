@@ -210,16 +210,42 @@ export default function RoomView({ roomId }: Props) {
     }
   }, [updateFile]);
 
+  const [copied, setCopied] = useState(false);
+  const shareUrl = `${window.location.origin}/#/${roomId}`;
+
+  const copyUrl = async () => {
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const dataChannelReady = rtcState === 'connected';
 
   return (
     <div className="flex flex-col gap-6">
       <ConnectionStatus wsState={wsState} rtcState={rtcState} />
 
+      {/* 共有URL パネル（P2P接続前のみ表示） */}
       {!dataChannelReady && (
-        <p className="text-center text-sm text-gray-500">
-          {wsState === 'connected' ? '相手の接続を待っています…' : 'シグナリングサーバーに接続中…'}
-        </p>
+        <div className="rounded-lg border border-gray-700 bg-gray-900 p-4 flex flex-col gap-3">
+          <p className="text-sm text-gray-400">このURLを相手に共有してください</p>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={shareUrl}
+              className="flex-1 rounded bg-gray-800 px-3 py-2 text-sm font-mono text-gray-200 outline-none"
+            />
+            <button
+              onClick={() => void copyUrl()}
+              className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold hover:bg-blue-500 transition-colors shrink-0"
+            >
+              {copied ? 'コピー済み' : 'コピー'}
+            </button>
+          </div>
+          <p className="text-center text-xs text-gray-500">
+            {wsState === 'connected' ? '相手の接続を待っています…' : 'シグナリングサーバーに接続中…'}
+          </p>
+        </div>
       )}
 
       {dataChannelReady && (
