@@ -1,5 +1,10 @@
 // RTCPeerConnection 管理
 
+const log = (...args: unknown[]) =>
+  console.log(`[WebRTC ${new Date().toISOString()}]`, ...args);
+const warn = (...args: unknown[]) =>
+  console.warn(`[WebRTC ${new Date().toISOString()}]`, ...args);
+
 export type DataChannelMessageHandler = (data: string | ArrayBuffer) => void;
 
 export class PeerConnection {
@@ -13,17 +18,47 @@ export class PeerConnection {
     iceServers: RTCIceServer[],
     private readonly onIceCandidate: (candidate: RTCIceCandidateInit) => void
   ) {
+    log('PeerConnection 生成', { iceServers });
     this.pc = new RTCPeerConnection({ iceServers });
+
+    // ICE 候補収集の状態変化
+    this.pc.onicegatheringstatechange = () => {
+      log('ICE gathering state:', this.pc.iceGatheringState);
+    };
+
+    // ICE 接続状態の変化
+    this.pc.oniceconnectionstatechange = () => {
+      const s = this.pc.iceConnectionState;
+      log('ICE connection state:', s);
+      if (s === 'failed' || s === 'disconnected') {
+        warn('ICE 接続失敗/切断 — chrome://webrtc-internals で詳細確認推奨');
+      }
+    };
+
+    // PeerConnection 全体の接続状態
+    this.pc.onconnectionstatechange = () => {
+      log('Connection state:', this.pc.connectionState);
+    };
+
+    // シグナリング状態
+    this.pc.onsignalingstatechange = () => {
+      log('Signaling state:', this.pc.signalingState);
+    };
 
     // ICE 候補をシグナリング経由で送信
     this.pc.onicecandidate = (event) => {
       if (event.candidate) {
-        this.onIceCandidate(event.candidate.toJSON());
+        const c = event.candidate;
+        log('ICE candidate 送信:', c.type, c.protocol, c.address, c.port, '→', c.candidate);
+        this.onIceCandidate(c.toJSON());
+      } else {
+        log('ICE candidate 収集完了（null candidate）');
       }
     };
 
     // 相手からの DataChannel を受信
     this.pc.ondatachannel = (event) => {
+      log('DataChannel 受信:', event.channel.label);
       this.setupDataChannel(event.channel);
     };
   }
@@ -32,12 +67,26 @@ export class PeerConnection {
   private setupDataChannel(channel: RTCDataChannel): void {
     this.dataChannel = channel;
     channel.binaryType = 'arraybuffer';
+    log('DataChannel セットアップ:', channel.label, '/ readyState:', channel.readyState);
 
     channel.onopen = () => {
+      log('DataChannel open ✅');
+      // 使用中の ICE candidate ペアを表示
+      void this.pc.getStats().then((stats) => {
+        stats.forEach((report) => {
+          if (report.type === 'candidate-pair' && (report as RTCIceCandidatePairStats).state === 'succeeded') {
+            log('使用中の candidate-pair:', JSON.stringify(report));
+          }
+        });
+      });
       this.openHandlers.forEach((h) => h());
     };
     channel.onclose = () => {
+      log('DataChannel close');
       this.closeHandlers.forEach((h) => h());
+    };
+    channel.onerror = (e) => {
+      warn('DataChannel error:', e);
     };
     channel.onmessage = (event) => {
       this.messageHandlers.forEach((h) => h(event.data as string | ArrayBuffer));
@@ -46,41 +95,42 @@ export class PeerConnection {
 
   /** Offer を生成して DataChannel を作成する（先入室者が呼ぶ） */
   async createOffer(): Promise<RTCSessionDescriptionInit> {
-    // DataChannel を作成
+    log('createOffer 開始');
     const channel = this.pc.createDataChannel('files', { ordered: true });
     this.setupDataChannel(channel);
 
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
+    log('Offer 生成完了 / localDescription set');
     return offer;
   }
 
   /** 受け取った Offer を処理して Answer を生成する */
   async handleOffer(sdp: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
+    log('handleOffer — remoteDescription set');
     await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
+    log('Answer 生成完了 / localDescription set');
     return answer;
   }
 
   /** 受け取った Answer を処理する */
   async handleAnswer(sdp: RTCSessionDescriptionInit): Promise<void> {
+    log('handleAnswer — remoteDescription set');
     await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
   }
 
   /** ICE 候補を追加する */
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    log('ICE candidate 追加:', candidate.candidate);
     await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
   }
 
   /** DataChannel でデータを送信する */
   send(data: string | ArrayBuffer): void {
-    if (!this.dataChannel) return;
-    if (typeof data === 'string') {
-      this.dataChannel.send(data);
-    } else {
-      this.dataChannel.send(data);
-    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.dataChannel?.send(data as any);
   }
 
   /** DataChannel のバッファ量を取得する */
