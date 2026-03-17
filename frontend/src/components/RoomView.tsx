@@ -168,7 +168,11 @@ export default function RoomView({ roomId }: Props) {
 
       try {
         await signaling.connect();
-        if (!cancelled) setWsState('connected');
+        if (!cancelled) {
+          setWsState('connected');
+          // ルームに参加を通知（これがないと peer-joined が発火しない）
+          signaling.send({ type: 'join' });
+        }
       } catch {
         if (!cancelled) setWsState('failed');
       }
