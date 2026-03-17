@@ -9,6 +9,7 @@ const stateLabel: Record<ConnectionState, string> = {
   disconnected: '未接続',
   connecting: '接続中',
   connected: '接続済み',
+  'room-full': 'ルーム満員',
   failed: 'エラー',
 };
 
@@ -16,6 +17,7 @@ const stateColor: Record<ConnectionState, string> = {
   disconnected: 'bg-gray-500',
   connecting: 'bg-yellow-500 animate-pulse',
   connected: 'bg-green-500',
+  'room-full': 'bg-orange-500',
   failed: 'bg-red-500',
 };
 

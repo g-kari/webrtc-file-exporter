@@ -13,6 +13,7 @@ export class SignalingClient {
   private ws: WebSocket | null = null;
   private messageHandlers: MessageHandler[] = [];
   private closeHandlers: (() => void)[] = [];
+  private roomFullHandlers: (() => void)[] = [];
 
   constructor(private readonly roomId: string) {}
 
@@ -35,8 +36,13 @@ export class SignalingClient {
       };
       this.ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data as string) as SignalingMessage;
-          log('受信 ←', message.type, JSON.stringify(message));
+          const raw = JSON.parse(event.data as string) as { type: string };
+          log('受信 ←', raw.type, JSON.stringify(raw));
+          if (raw.type === 'room-full') {
+            this.roomFullHandlers.forEach((h) => h());
+            return;
+          }
+          const message = raw as unknown as SignalingMessage;
           this.messageHandlers.forEach((h) => h(message));
         } catch {
           warn('JSON パース失敗:', event.data);
@@ -68,6 +74,11 @@ export class SignalingClient {
   /** 切断ハンドラを登録する */
   onClose(handler: () => void): void {
     this.closeHandlers.push(handler);
+  }
+
+  /** ルーム満員ハンドラを登録する */
+  onRoomFull(handler: () => void): void {
+    this.roomFullHandlers.push(handler);
   }
 
   /** 接続を切断する */

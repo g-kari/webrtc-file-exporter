@@ -43,8 +43,13 @@ export class SignalingRoom extends DurableObject {
 
     // ルーム最大2名制限
     if (activePeers.length >= 2) {
-      this.log("ルーム満員 → 503");
-      return new Response("ルームが満員です", { status: 503 });
+      this.log("ルーム満員 → accept して room-full 送信後 close");
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      this.ctx.acceptWebSocket(server);
+      server.send(JSON.stringify({ type: "room-full" }));
+      server.close(4003, "ルームが満員です");
+      return new Response(null, { status: 101, webSocket: client });
     }
 
     const pair = new WebSocketPair();

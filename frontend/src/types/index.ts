@@ -5,6 +5,7 @@ export type ConnectionState =
   | 'disconnected'
   | 'connecting'
   | 'connected'
+  | 'room-full'
   | 'failed';
 
 // ファイル転送状態

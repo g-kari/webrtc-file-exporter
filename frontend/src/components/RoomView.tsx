@@ -113,7 +113,19 @@ export default function RoomView({ roomId }: Props) {
       setWsState('connecting');
 
       signaling.onClose(() => {
-        if (!cancelled) setWsState('disconnected');
+        if (!cancelled) {
+          setWsState('disconnected');
+          // シグナリング切断時は P2P も維持不能（再ネゴシエーションできない）
+          if (pcRef.current) {
+            pcRef.current.close();
+            pcRef.current = null;
+            setRtcState('disconnected');
+          }
+        }
+      });
+
+      signaling.onRoomFull(() => {
+        if (!cancelled) setWsState('room-full');
       });
 
       signaling.onMessage(async (message) => {
@@ -229,8 +241,16 @@ export default function RoomView({ roomId }: Props) {
     <div className="flex flex-col gap-6">
       <ConnectionStatus wsState={wsState} rtcState={rtcState} />
 
-      {/* 共有URL パネル（P2P接続前のみ表示） */}
-      {!dataChannelReady && (
+      {/* 満員エラーパネル */}
+      {wsState === 'room-full' && (
+        <div className="rounded-lg border border-orange-700 bg-orange-950 p-4 text-center">
+          <p className="text-sm text-orange-300 font-semibold">このルームは既に2人が接続中です。</p>
+          <p className="text-xs text-orange-400 mt-1">新しいルームを作成してください。</p>
+        </div>
+      )}
+
+      {/* 共有URL パネル（P2P接続前かつ満員でない場合のみ表示） */}
+      {!dataChannelReady && wsState !== 'room-full' && (
         <div className="rounded-lg border border-gray-700 bg-gray-900 p-4 flex flex-col gap-3">
           <p className="text-sm text-gray-400">このURLを相手に共有してください</p>
           <div className="flex gap-2">

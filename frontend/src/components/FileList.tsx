@@ -10,6 +10,22 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function FilePreview({ file }: { file: TransferFile }) {
+  if (!file.blobUrl) return null;
+  const t = file.type;
+
+  if (t.startsWith('image/')) {
+    return <img src={file.blobUrl} alt={file.name} className="mt-2 max-h-48 rounded" />;
+  }
+  if (t.startsWith('video/')) {
+    return <video src={file.blobUrl} controls className="mt-2 max-h-48 rounded" />;
+  }
+  if (t.startsWith('audio/')) {
+    return <audio src={file.blobUrl} controls className="mt-2 w-full" />;
+  }
+  return null;
+}
+
 export default function FileList({ files }: Props) {
   if (files.length === 0) return null;
 
@@ -37,13 +53,16 @@ export default function FileList({ files }: Props) {
               </div>
             )}
             {file.state === 'completed' && file.blobUrl && (
-              <a
-                href={file.blobUrl}
-                download={file.name}
-                className="mt-2 inline-block text-xs text-blue-400 hover:text-blue-300"
-              >
-                ダウンロード
-              </a>
+              <>
+                <FilePreview file={file} />
+                <a
+                  href={file.blobUrl}
+                  download={file.name}
+                  className="mt-2 inline-block text-xs text-blue-400 hover:text-blue-300"
+                >
+                  ダウンロード
+                </a>
+              </>
             )}
             {file.state === 'completed' && !file.blobUrl && (
               <p className="mt-1 text-xs text-green-400">送信完了</p>

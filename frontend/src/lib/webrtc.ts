@@ -30,14 +30,18 @@ export class PeerConnection {
     this.pc.oniceconnectionstatechange = () => {
       const s = this.pc.iceConnectionState;
       log('ICE connection state:', s);
-      if (s === 'failed' || s === 'disconnected') {
-        warn('ICE 接続失敗/切断 — chrome://webrtc-internals で詳細確認推奨');
+      if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+        warn('ICE 接続失敗/切断:', s);
+        this.closeHandlers.forEach((h) => h());
       }
     };
 
     // PeerConnection 全体の接続状態
     this.pc.onconnectionstatechange = () => {
       log('Connection state:', this.pc.connectionState);
+      if (this.pc.connectionState === 'failed' || this.pc.connectionState === 'closed') {
+        this.closeHandlers.forEach((h) => h());
+      }
     };
 
     // シグナリング状態
