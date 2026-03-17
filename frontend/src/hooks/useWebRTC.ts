@@ -3,10 +3,13 @@ import type { ConnectionState } from '../types';
 import { SignalingClient } from '../lib/signaling';
 import { PeerConnection } from '../lib/webrtc';
 
+const warn = (...args: unknown[]) =>
+  console.warn('[useWebRTC]', ...args);
+
 export function useWebRTC(
   roomId: string,
   onDataChannelOpen: (pc: PeerConnection) => void,
-  onCleanup: () => void,
+  onBeforeUnmount: () => void,
 ) {
   const [wsState, setWsState] = useState<ConnectionState>('disconnected');
   const [rtcState, setRtcState] = useState<ConnectionState>('disconnected');
@@ -15,11 +18,12 @@ export function useWebRTC(
   const pcRef = useRef<PeerConnection | null>(null);
   const iceServersRef = useRef<RTCIceServer[]>([]);
 
-  // コールバックは ref で保持して effect の再実行を防ぐ
+  // コールバックを ref で保持することで effect の依存配列から除外し、
+  // roomId 変更時のみ再接続するようにする（stable ref パターン）
   const onDataChannelOpenRef = useRef(onDataChannelOpen);
-  const onCleanupRef = useRef(onCleanup);
+  const onBeforeUnmountRef = useRef(onBeforeUnmount);
   onDataChannelOpenRef.current = onDataChannelOpen;
-  onCleanupRef.current = onCleanup;
+  onBeforeUnmountRef.current = onBeforeUnmount;
 
   useEffect(() => {
     let cancelled = false;
@@ -73,30 +77,37 @@ export function useWebRTC(
       signaling.onMessage(async (message) => {
         if (cancelled) return;
 
-        if (message.type === 'peer-joined') {
-          const pc = createPeerConnection(signaling);
-          const offer = await pc.createOffer();
-          signaling.send({ type: 'offer', sdp: offer });
-        }
+        try {
+          if (message.type === 'peer-joined') {
+            const pc = createPeerConnection(signaling);
+            const offer = await pc.createOffer();
+            if (cancelled) return;
+            signaling.send({ type: 'offer', sdp: offer });
+          }
 
-        if (message.type === 'offer') {
-          const pc = createPeerConnection(signaling);
-          const answer = await pc.handleOffer(message.sdp);
-          signaling.send({ type: 'answer', sdp: answer });
-        }
+          if (message.type === 'offer') {
+            const pc = createPeerConnection(signaling);
+            const answer = await pc.handleOffer(message.sdp);
+            if (cancelled) return;
+            signaling.send({ type: 'answer', sdp: answer });
+          }
 
-        if (message.type === 'answer' && pcRef.current) {
-          await pcRef.current.handleAnswer(message.sdp);
-        }
+          if (message.type === 'answer' && pcRef.current) {
+            await pcRef.current.handleAnswer(message.sdp);
+          }
 
-        if (message.type === 'ice-candidate' && pcRef.current) {
-          await pcRef.current.addIceCandidate(message.candidate);
-        }
+          if (message.type === 'ice-candidate' && pcRef.current) {
+            await pcRef.current.addIceCandidate(message.candidate);
+          }
 
-        if (message.type === 'leave') {
-          pcRef.current?.close();
-          pcRef.current = null;
-          if (!cancelled) setRtcState('disconnected');
+          if (message.type === 'leave') {
+            pcRef.current?.close();
+            pcRef.current = null;
+            if (!cancelled) setRtcState('disconnected');
+          }
+        } catch (err) {
+          warn('シグナリングメッセージ処理エラー:', err);
+          if (!cancelled) setRtcState('failed');
         }
       });
 
@@ -117,7 +128,7 @@ export function useWebRTC(
       cancelled = true;
       signalingRef.current?.disconnect();
       pcRef.current?.close();
-      onCleanupRef.current();
+      onBeforeUnmountRef.current();
     };
   }, [roomId]);
 

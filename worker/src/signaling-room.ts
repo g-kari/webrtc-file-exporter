@@ -166,7 +166,15 @@ export class SignalingRoom extends DurableObject {
   // WebSocket エラーハンドラ
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     const attachment = ws.deserializeAttachment() as PeerAttachment | null;
-    console.error(`[DO] WebSocket エラー peerId=${attachment?.peerId ?? "(未join)"}:`, error);
-    // webSocketClose は Cloudflare Workers が自動的に呼び出すためここでは呼ばない
+    const peerId = attachment?.peerId ?? "";
+    console.error(`[DO] WebSocket エラー peerId=${peerId || "(未join)"}:`, error);
+    // webSocketClose が自動呼び出しされない場合に備えてピアを解放する
+    // peers.has() チェックにより webSocketClose との二重実行を防ぐ
+    if (peerId && this.peers.has(peerId)) {
+      this.peers.delete(peerId);
+      for (const peerWs of this.peers.values()) {
+        peerWs.send(JSON.stringify({ type: "leave", peerId }));
+      }
+    }
   }
 }

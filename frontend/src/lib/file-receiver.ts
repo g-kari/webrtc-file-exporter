@@ -6,6 +6,9 @@ import { FILE_ID_HEADER_SIZE } from './file-sender';
 // 受信ファイルの最大サイズ（2GB）：メモリ枯渇 DoS を防ぐ
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024;
 
+// モジュールスコープで一度だけ生成（チャンクごとの生成コストを削減）
+const TEXT_DECODER = new TextDecoder();
+
 interface ReceivingFile {
   metadata: FileMetadata;
   chunks: ArrayBuffer[];
@@ -82,7 +85,8 @@ export class FileReceiver {
     // バイナリフレーム構造: [36バイト fileId][チャンクデータ]
     if (data.byteLength <= FILE_ID_HEADER_SIZE) return;
 
-    const fileId = new TextDecoder().decode(data.slice(0, FILE_ID_HEADER_SIZE));
+    // subarray でコピーを発生させずに fileId を読み取る
+    const fileId = TEXT_DECODER.decode(new Uint8Array(data).subarray(0, FILE_ID_HEADER_SIZE));
     const chunk = data.slice(FILE_ID_HEADER_SIZE);
 
     const file = this.receivingFiles.get(fileId);

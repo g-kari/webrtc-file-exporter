@@ -36,28 +36,16 @@ export function useFileTransfer() {
       updateFile(fileId, { transferred, state: 'transferring' });
     });
 
+    // onStart が必ず先行するため、既存エントリへの更新のみ行う
     receiver.onComplete((fileId, blobUrl, metadata) => {
       blobUrlsRef.current.set(fileId, blobUrl);
-      setFiles((prev) => {
-        const exists = prev.some((f) => f.id === fileId);
-        if (!exists) {
-          return [...prev, {
-            id: fileId,
-            name: metadata.name,
-            size: metadata.size,
-            type: metadata.mimeType,
-            state: 'completed' as const,
-            transferred: metadata.size,
-            blobUrl,
-            direction: 'receive' as const,
-          }];
-        }
-        return prev.map((f) =>
+      setFiles((prev) =>
+        prev.map((f) =>
           f.id === fileId
             ? { ...f, state: 'completed' as const, blobUrl, transferred: metadata.size }
             : f
-        );
-      });
+        )
+      );
     });
 
     pc.onMessage((data) => receiver.handleMessage(data));
@@ -65,7 +53,9 @@ export function useFileTransfer() {
   }, [updateFile]);
 
   const handleFiles = useCallback(async (newFiles: File[]) => {
-    if (!senderRef.current) return;
+    // スナップショットを取得して並列処理中の null 競合を防ぐ
+    const sender = senderRef.current;
+    if (!sender) return;
 
     // 全ファイルを先にリストに追加してから並列送信
     const transfers = newFiles.map((file) => ({ file, fileId: crypto.randomUUID() }));
@@ -86,7 +76,7 @@ export function useFileTransfer() {
     await Promise.all(
       transfers.map(async ({ file, fileId }) => {
         try {
-          await senderRef.current!.send(file, fileId, (transferred) => {
+          await sender.send(file, fileId, (transferred) => {
             updateFile(fileId, { transferred, state: 'transferring' });
           });
           updateFile(fileId, { state: 'completed', transferred: file.size });

@@ -6,19 +6,20 @@ import type { FileMetadata, FileChunkAck } from '../types';
 const CHUNK_SIZE = 64 * 1024; // 64KB
 const BUFFER_THRESHOLD = 256 * 1024; // 256KB
 
-// バイナリフレームのヘッダーサイズ（UUID = 36 ASCII バイト）
-const FILE_ID_HEADER_SIZE = 36;
+/** バイナリフレームのヘッダーサイズ（UUID = 36 ASCII バイト） */
+export const FILE_ID_HEADER_SIZE = 36;
+
+// モジュールスコープで一度だけ生成（チャンクごとの生成コストを削減）
+const TEXT_ENCODER = new TextEncoder();
 
 /** チャンクバイナリに fileId ヘッダーを付与してフレームを作成する */
 function frameChunk(fileId: string, buffer: ArrayBuffer): ArrayBuffer {
-  const header = new TextEncoder().encode(fileId); // 36 bytes
+  const header = TEXT_ENCODER.encode(fileId); // 36 bytes
   const framed = new Uint8Array(FILE_ID_HEADER_SIZE + buffer.byteLength);
   framed.set(header, 0);
   framed.set(new Uint8Array(buffer), FILE_ID_HEADER_SIZE);
   return framed.buffer;
 }
-
-export { FILE_ID_HEADER_SIZE };
 
 export class FileSender {
   constructor(private readonly pc: PeerConnection) {}
