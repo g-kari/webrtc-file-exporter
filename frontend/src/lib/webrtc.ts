@@ -165,11 +165,14 @@ export class PeerConnection {
     }
   }
 
-  /** DataChannel でデータを送信する */
+  /** DataChannel でデータを送信する。DataChannel が open でない場合は例外を投げる */
   send(data: string | ArrayBuffer): void {
+    if (this.dataChannel?.readyState !== 'open') {
+      throw new Error('DataChannel が open でないため送信できません');
+    }
     // RTCDataChannel.send() は string/ArrayBuffer 両方を受け付けるが
     // TypeScript overload 解決のため ArrayBuffer にキャストして呼び出す
-    this.dataChannel?.send(data as ArrayBuffer);
+    this.dataChannel.send(data as ArrayBuffer);
   }
 
   /** DataChannel のバッファ量を取得する */

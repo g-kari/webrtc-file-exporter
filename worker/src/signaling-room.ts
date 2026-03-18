@@ -103,7 +103,7 @@ export class SignalingRoom extends DurableObject {
         // 既に join 済みの場合は冪等に応答して終了
         if (currentPeerId) {
           this.log(`join 重複受信 peerId=${currentPeerId} — 無視`);
-          ws.send(JSON.stringify({ type: "joined", peerId: currentPeerId }));
+          this.safeSend(ws, JSON.stringify({ type: "joined", peerId: currentPeerId }));
           break;
         }
 
@@ -112,13 +112,13 @@ export class SignalingRoom extends DurableObject {
         this.peers.set(peerId, ws);
         this.log(`join 完了 peerId=${peerId} / ルーム人数: ${this.peers.size}`);
 
-        ws.send(JSON.stringify({ type: "joined", peerId }));
+        this.safeSend(ws, JSON.stringify({ type: "joined", peerId }));
 
         for (const [existingPeerId, existingWs] of this.peers.entries()) {
           if (existingPeerId !== peerId) {
             // 先入室者にのみ peer-joined を通知 → 先入室者が Offer を生成する
             this.log(`peer-joined 通知 → 先入室者 ${existingPeerId} のみ`);
-            existingWs.send(JSON.stringify({ type: "peer-joined", peerId }));
+            this.safeSend(existingWs, JSON.stringify({ type: "peer-joined", peerId }));
           }
         }
         break;
@@ -140,7 +140,7 @@ export class SignalingRoom extends DurableObject {
         let relayCount = 0;
         for (const [peerId, peerWs] of this.peers.entries()) {
           if (peerId !== currentPeerId) {
-            peerWs.send(JSON.stringify({ ...data, fromPeerId: currentPeerId }));
+            this.safeSend(peerWs, JSON.stringify({ ...data, fromPeerId: currentPeerId }));
             relayCount++;
           }
         }
@@ -174,6 +174,18 @@ export class SignalingRoom extends DurableObject {
   }
 
   /**
+   * WebSocket.send() を安全に呼び出す。
+   * 相手ソケットが閉じていた場合は warn のみで継続（例外で後続処理が中断しないよう）。
+   */
+  private safeSend(ws: WebSocket, message: string): void {
+    try {
+      ws.send(message);
+    } catch (e) {
+      this.warn('WebSocket.send() 失敗（相手切断？）:', e);
+    }
+  }
+
+  /**
    * ピアを peers マップから削除し、残りのピアに leave を通知する。
    * peers.has() チェックにより webSocketClose / webSocketError の二重実行を防ぐ。
    * @returns 削除されたピアの peerId（未 join または二重呼び出しの場合は空文字）
@@ -184,7 +196,7 @@ export class SignalingRoom extends DurableObject {
     if (peerId && this.peers.has(peerId)) {
       this.peers.delete(peerId);
       for (const peerWs of this.peers.values()) {
-        peerWs.send(JSON.stringify({ type: "leave", peerId }));
+        this.safeSend(peerWs, JSON.stringify({ type: "leave", peerId }));
       }
     }
     return peerId;

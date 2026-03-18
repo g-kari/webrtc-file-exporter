@@ -55,7 +55,8 @@ export interface FileMetadata {
   mimeType: string;
 }
 
-export interface FileChunkAck {
+/** file-end 通知（送信側 → 受信側、ファイル転送完了を示す） */
+export interface FileEndMessage {
   type: 'file-end';
   fileId: string;
 }

@@ -14,6 +14,8 @@ export class SignalingClient {
   private roomFullCallback: (() => void) | null = null;
   /** disconnect() による意図的切断フラグ（onclose での closeCallback 発火を抑制） */
   private disconnecting = false;
+  /** room-full 受信済みフラグ（onclose での closeCallback 発火を抑制） */
+  private roomFullReceived = false;
 
   constructor(private readonly roomId: string) {}
 
@@ -47,6 +49,7 @@ export class SignalingClient {
           const raw = JSON.parse(event.data) as { type: string };
           log('受信 ←', raw.type, JSON.stringify(raw));
           if (raw.type === 'room-full') {
+            this.roomFullReceived = true;
             this.roomFullCallback?.();
             return;
           }
@@ -62,8 +65,8 @@ export class SignalingClient {
       };
       this.ws.onclose = (e) => {
         log('WS 切断 code:', e.code, 'reason:', e.reason);
-        // 接続確立後かつ意図的切断でない場合のみ closeCallback を発火
-        if (settled && !this.disconnecting) {
+        // 接続確立後かつ意図的切断でも room-full でもない場合のみ closeCallback を発火
+        if (settled && !this.disconnecting && !this.roomFullReceived) {
           this.closeCallback?.();
         }
       };

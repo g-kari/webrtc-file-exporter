@@ -1,7 +1,7 @@
 // ファイル送信：チャンク分割 + バックプレッシャー制御
 
 import type { PeerConnection } from './webrtc';
-import type { FileMetadata, FileChunkAck } from '../types';
+import type { FileMetadata, FileEndMessage } from '../types';
 import { FILE_ID_HEADER_SIZE } from '../types';
 import { createLogger } from './logger';
 
@@ -58,7 +58,7 @@ export class FileSender {
     }
 
     // 完了通知
-    const ack: FileChunkAck = { type: 'file-end', fileId };
+    const ack: FileEndMessage = { type: 'file-end', fileId };
     this.pc.send(JSON.stringify(ack));
     log(`送信完了: ${file.name} fileId=${fileId}`);
   }

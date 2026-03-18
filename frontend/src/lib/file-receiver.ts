@@ -33,6 +33,8 @@ function isValidFileStart(
     typeof msg.fileId === 'string' && msg.fileId !== '' &&
     typeof msg.name === 'string' &&
     typeof msg.size === 'number' &&
+    // 負数・非有限値・小数を拒否
+    Number.isFinite(msg.size) && msg.size >= 0 &&
     typeof msg.mimeType === 'string' &&
     msg.size <= MAX_FILE_SIZE
   );
@@ -79,6 +81,13 @@ export class FileReceiver {
       const fileId = message.fileId;
       const file = this.receivingFiles.get(fileId);
       if (!file) return;
+
+      // 受信バイト数がメタデータのサイズと一致しない場合は不完全転送として破棄
+      if (file.received !== file.metadata.size) {
+        warn(`受信バイト数不一致 fileId=${fileId} received=${file.received} expected=${file.metadata.size} — 破棄`);
+        this.receivingFiles.delete(fileId);
+        return;
+      }
 
       log(`受信完了: ${file.metadata.name} fileId=${fileId}`);
       const blob = new Blob(file.chunks, { type: file.metadata.mimeType });
