@@ -1,22 +1,22 @@
 // RTCPeerConnection 管理
 
-const log = (...args: unknown[]) => {
-  if (import.meta.env.DEV) console.log(`[WebRTC ${new Date().toISOString()}]`, ...args);
-};
-const warn = (...args: unknown[]) =>
-  console.warn(`[WebRTC ${new Date().toISOString()}]`, ...args);
+import { createLogger } from './logger';
+
+const { log, warn } = createLogger('WebRTC');
 
 export type DataChannelMessageHandler = (data: string | ArrayBuffer) => void;
 
 export class PeerConnection {
   private pc: RTCPeerConnection;
   private dataChannel: RTCDataChannel | null = null;
-  private messageHandlers: DataChannelMessageHandler[] = [];
-  private openHandlers: (() => void)[] = [];
-  private closeHandlers: (() => void)[] = [];
+  private messageCallback: DataChannelMessageHandler | null = null;
+  private openCallback: (() => void) | null = null;
+  private closeCallback: (() => void) | null = null;
   /** remoteDescription が設定されるまで ICE candidate をバッファリングする */
   private pendingIceCandidates: RTCIceCandidateInit[] = [];
   private remoteDescriptionSet = false;
+  /** closeHandlers の多重発火を防ぐフラグ（DataChannel/ICE/Connection の3経路から発火しうる） */
+  private closeFired = false;
 
   constructor(
     iceServers: RTCIceServer[],
@@ -38,7 +38,7 @@ export class PeerConnection {
       // failed / closed の場合のみセッション終了とみなす
       if (s === 'failed' || s === 'closed') {
         warn('ICE 接続失敗:', s);
-        this.closeHandlers.forEach((h) => h());
+        this.fireClose();
       }
     };
 
@@ -46,7 +46,7 @@ export class PeerConnection {
     this.pc.onconnectionstatechange = () => {
       log('Connection state:', this.pc.connectionState);
       if (this.pc.connectionState === 'failed' || this.pc.connectionState === 'closed') {
-        this.closeHandlers.forEach((h) => h());
+        this.fireClose();
       }
     };
 
@@ -81,25 +81,27 @@ export class PeerConnection {
 
     channel.onopen = () => {
       log('DataChannel open ✅');
-      // 使用中の ICE candidate ペアを表示
-      void this.pc.getStats().then((stats) => {
-        stats.forEach((report) => {
-          if (report.type === 'candidate-pair' && (report as RTCIceCandidatePairStats).state === 'succeeded') {
-            log('使用中の candidate-pair:', JSON.stringify(report));
-          }
+      // 使用中の ICE candidate ペアを表示（開発時のみ）
+      if (import.meta.env.DEV) {
+        void this.pc.getStats().then((stats) => {
+          stats.forEach((report) => {
+            if (report.type === 'candidate-pair' && (report as RTCIceCandidatePairStats).state === 'succeeded') {
+              log('使用中の candidate-pair:', JSON.stringify(report));
+            }
+          });
         });
-      });
-      this.openHandlers.forEach((h) => h());
+      }
+      this.openCallback?.();
     };
     channel.onclose = () => {
       log('DataChannel close');
-      this.closeHandlers.forEach((h) => h());
+      this.fireClose();
     };
     channel.onerror = (e) => {
       warn('DataChannel error:', e);
     };
     channel.onmessage = (event) => {
-      this.messageHandlers.forEach((h) => h(event.data as string | ArrayBuffer));
+      this.messageCallback?.(event.data as string | ArrayBuffer);
     };
   }
 
@@ -115,12 +117,17 @@ export class PeerConnection {
     return offer;
   }
 
-  /** 受け取った Offer を処理して Answer を生成する */
-  async handleOffer(sdp: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
-    log('handleOffer — remoteDescription set');
+  /** remoteDescription を設定し、バッファリングされた ICE candidate を適用する */
+  private async applyRemoteDescription(sdp: RTCSessionDescriptionInit): Promise<void> {
     await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
     this.remoteDescriptionSet = true;
     await this.flushPendingIceCandidates();
+  }
+
+  /** 受け取った Offer を処理して Answer を生成する */
+  async handleOffer(sdp: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
+    log('handleOffer — remoteDescription set');
+    await this.applyRemoteDescription(sdp);
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
     log('Answer 生成完了 / localDescription set');
@@ -130,9 +137,7 @@ export class PeerConnection {
   /** 受け取った Answer を処理する */
   async handleAnswer(sdp: RTCSessionDescriptionInit): Promise<void> {
     log('handleAnswer — remoteDescription set');
-    await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    this.remoteDescriptionSet = true;
-    await this.flushPendingIceCandidates();
+    await this.applyRemoteDescription(sdp);
   }
 
   /** ICE 候補を追加する（remoteDescription 未設定時はバッファリング） */
@@ -162,12 +167,9 @@ export class PeerConnection {
 
   /** DataChannel でデータを送信する */
   send(data: string | ArrayBuffer): void {
-    if (!this.dataChannel) return;
-    if (typeof data === 'string') {
-      this.dataChannel.send(data);
-    } else {
-      this.dataChannel.send(data as ArrayBuffer);
-    }
+    // RTCDataChannel.send() は string/ArrayBuffer 両方を受け付けるが
+    // TypeScript overload 解決のため ArrayBuffer にキャストして呼び出す
+    this.dataChannel?.send(data as ArrayBuffer);
   }
 
   /** DataChannel のバッファ量を取得する */
@@ -177,38 +179,37 @@ export class PeerConnection {
 
   /** DataChannel の bufferedamountlow イベントに Promise で待機する */
   waitForBufferDrain(threshold: number): Promise<void> {
-    if (!this.dataChannel) return Promise.resolve();
-    if (this.dataChannel.bufferedAmount <= threshold) return Promise.resolve();
+    const dc = this.dataChannel;
+    if (!dc || dc.bufferedAmount <= threshold) return Promise.resolve();
 
     return new Promise((resolve, reject) => {
-      if (!this.dataChannel) return resolve();
-      this.dataChannel.bufferedAmountLowThreshold = threshold;
+      dc.bufferedAmountLowThreshold = threshold;
+
+      const cleanup = () => {
+        dc.removeEventListener('bufferedamountlow', onLow);
+        dc.removeEventListener('close', onClose);
+        dc.removeEventListener('error', onError);
+      };
 
       const onLow = () => { cleanup(); resolve(); };
       // DataChannel が転送中に閉じた場合はエラーとして扱う（正常完了ではない）
       const onClose = () => { cleanup(); reject(new Error('DataChannel が転送中に閉じました')); };
       const onError = (e: Event) => { cleanup(); reject(e); };
 
-      const cleanup = () => {
-        this.dataChannel?.removeEventListener('bufferedamountlow', onLow);
-        this.dataChannel?.removeEventListener('close', onClose);
-        this.dataChannel?.removeEventListener('error', onError);
-      };
-
-      this.dataChannel.addEventListener('bufferedamountlow', onLow, { once: true });
-      this.dataChannel.addEventListener('close', onClose, { once: true });
-      this.dataChannel.addEventListener('error', onError, { once: true });
+      dc.addEventListener('bufferedamountlow', onLow);
+      dc.addEventListener('close', onClose);
+      dc.addEventListener('error', onError);
     });
   }
 
   /** メッセージ受信ハンドラを登録する */
   onMessage(handler: DataChannelMessageHandler): void {
-    this.messageHandlers.push(handler);
+    this.messageCallback = handler;
   }
 
   /** DataChannel オープンハンドラを登録する */
   onOpen(handler: () => void): void {
-    this.openHandlers.push(handler);
+    this.openCallback = handler;
     // すでに開いている場合は即時呼び出す
     if (this.dataChannel?.readyState === 'open') {
       handler();
@@ -217,7 +218,14 @@ export class PeerConnection {
 
   /** DataChannel クローズハンドラを登録する */
   onClose(handler: () => void): void {
-    this.closeHandlers.push(handler);
+    this.closeCallback = handler;
+  }
+
+  /** closeHandlers を一度だけ発火する（多重呼び出し防止） */
+  private fireClose(): void {
+    if (this.closeFired) return;
+    this.closeFired = true;
+    this.closeCallback?.();
   }
 
   /** 接続を閉じる */

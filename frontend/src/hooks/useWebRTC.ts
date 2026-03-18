@@ -2,58 +2,63 @@ import { useState, useRef, useEffect } from 'react';
 import type { ConnectionState } from '../types';
 import { SignalingClient } from '../lib/signaling';
 import { PeerConnection } from '../lib/webrtc';
+import { createLogger } from '../lib/logger';
 
-const warn = (...args: unknown[]) =>
-  console.warn('[useWebRTC]', ...args);
+const { warn } = createLogger('useWebRTC');
+
+/** TURN クレデンシャルを取得する。失敗時は STUN のみを返す */
+async function fetchIceServers(): Promise<RTCIceServer[]> {
+  try {
+    const res = await fetch('/api/turn-credentials');
+    if (res.ok) {
+      const data = await res.json() as { iceServers?: RTCIceServer[] };
+      if (Array.isArray(data.iceServers)) return data.iceServers;
+    }
+  } catch {
+    // STUN のみで続行
+  }
+  return [{ urls: 'stun:stun.cloudflare.com:3478' }];
+}
 
 export function useWebRTC(
   roomId: string,
   onDataChannelOpen: (pc: PeerConnection) => void,
-  onBeforeUnmount: () => void,
+  onCleanup: () => void,
 ) {
   const [wsState, setWsState] = useState<ConnectionState>('disconnected');
   const [rtcState, setRtcState] = useState<ConnectionState>('disconnected');
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const pcRef = useRef<PeerConnection | null>(null);
-  const iceServersRef = useRef<RTCIceServer[]>([]);
 
   // コールバックを ref で保持することで effect の依存配列から除外し、
   // roomId 変更時のみ再接続するようにする（stable ref パターン）
   const onDataChannelOpenRef = useRef(onDataChannelOpen);
-  const onBeforeUnmountRef = useRef(onBeforeUnmount);
+  const onCleanupRef = useRef(onCleanup);
   onDataChannelOpenRef.current = onDataChannelOpen;
-  onBeforeUnmountRef.current = onBeforeUnmount;
+  onCleanupRef.current = onCleanup;
 
   useEffect(() => {
     let cancelled = false;
 
-    const createPeerConnection = (signaling: SignalingClient): PeerConnection => {
-      pcRef.current?.close();
-      const pc = new PeerConnection(iceServersRef.current, (candidate) => {
-        signaling.send({ type: 'ice-candidate', candidate });
-      });
-      pcRef.current = pc;
-      pc.onOpen(() => onDataChannelOpenRef.current(pc));
-      pc.onClose(() => { if (!cancelled) setRtcState('disconnected'); });
-      setRtcState('connecting');
-      return pc;
-    };
-
     const init = async () => {
-      // TURN クレデンシャル取得
-      let iceServers: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
-      try {
-        const res = await fetch('/api/turn-credentials');
-        if (res.ok) {
-          const data = await res.json() as { iceServers?: RTCIceServer[] };
-          if (Array.isArray(data.iceServers)) iceServers = data.iceServers;
-        }
-      } catch {
-        // STUN のみで続行
-      }
-      iceServersRef.current = iceServers;
+      const iceServers = await fetchIceServers();
       if (cancelled) return;
+
+      const createPeerConnection = (signaling: SignalingClient): PeerConnection => {
+        pcRef.current?.close();
+        const pc = new PeerConnection(iceServers, (candidate) => {
+          signaling.send({ type: 'ice-candidate', candidate });
+        });
+        pcRef.current = pc;
+        pc.onOpen(() => {
+          if (!cancelled) setRtcState('connected');
+          onDataChannelOpenRef.current(pc);
+        });
+        pc.onClose(() => { if (!cancelled) setRtcState('disconnected'); });
+        setRtcState('connecting');
+        return pc;
+      };
 
       const signaling = new SignalingClient(roomId);
       signalingRef.current = signaling;
@@ -76,34 +81,36 @@ export function useWebRTC(
 
       signaling.onMessage(async (message) => {
         if (cancelled) return;
-
         try {
-          if (message.type === 'peer-joined') {
-            const pc = createPeerConnection(signaling);
-            const offer = await pc.createOffer();
-            if (cancelled) return;
-            signaling.send({ type: 'offer', sdp: offer });
-          }
-
-          if (message.type === 'offer') {
-            const pc = createPeerConnection(signaling);
-            const answer = await pc.handleOffer(message.sdp);
-            if (cancelled) return;
-            signaling.send({ type: 'answer', sdp: answer });
-          }
-
-          if (message.type === 'answer' && pcRef.current) {
-            await pcRef.current.handleAnswer(message.sdp);
-          }
-
-          if (message.type === 'ice-candidate' && pcRef.current) {
-            await pcRef.current.addIceCandidate(message.candidate);
-          }
-
-          if (message.type === 'leave') {
-            pcRef.current?.close();
-            pcRef.current = null;
-            if (!cancelled) setRtcState('disconnected');
+          switch (message.type) {
+            case 'peer-joined': {
+              const pc = createPeerConnection(signaling);
+              const offer = await pc.createOffer();
+              if (cancelled) return;
+              signaling.send({ type: 'offer', sdp: offer });
+              break;
+            }
+            case 'offer': {
+              const pc = createPeerConnection(signaling);
+              const answer = await pc.handleOffer(message.sdp);
+              if (cancelled) return;
+              signaling.send({ type: 'answer', sdp: answer });
+              break;
+            }
+            case 'answer':
+              if (pcRef.current) await pcRef.current.handleAnswer(message.sdp);
+              break;
+            case 'ice-candidate':
+              if (pcRef.current) await pcRef.current.addIceCandidate(message.candidate);
+              break;
+            case 'leave':
+              pcRef.current?.close();
+              pcRef.current = null;
+              if (!cancelled) setRtcState('disconnected');
+              break;
+            case 'joined':
+              // サーバー確認応答 — 処理不要
+              break;
           }
         } catch (err) {
           warn('シグナリングメッセージ処理エラー:', err);
@@ -128,7 +135,7 @@ export function useWebRTC(
       cancelled = true;
       signalingRef.current?.disconnect();
       pcRef.current?.close();
-      onBeforeUnmountRef.current();
+      onCleanupRef.current();
     };
   }, [roomId]);
 

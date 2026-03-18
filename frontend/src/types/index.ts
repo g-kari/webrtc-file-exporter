@@ -26,7 +26,7 @@ export interface TransferFile {
   direction: 'send' | 'receive';
 }
 
-// シグナリングメッセージ型
+// シグナリングメッセージ型（サーバー → クライアント 受信）
 export type SignalingMessage =
   | { type: 'joined'; peerId: string }
   | { type: 'peer-joined'; peerId: string }
@@ -34,6 +34,17 @@ export type SignalingMessage =
   | { type: 'answer'; sdp: RTCSessionDescriptionInit; fromPeerId: string }
   | { type: 'ice-candidate'; candidate: RTCIceCandidateInit; fromPeerId: string }
   | { type: 'leave'; peerId: string };
+
+// シグナリングメッセージ型（クライアント → サーバー 送信）
+export type OutgoingSignalingMessage =
+  | { type: 'join' }
+  | { type: 'leave' }
+  | { type: 'offer'; sdp: RTCSessionDescriptionInit }
+  | { type: 'answer'; sdp: RTCSessionDescriptionInit }
+  | { type: 'ice-candidate'; candidate: RTCIceCandidateInit };
+
+// DataChannel バイナリフレームのヘッダーサイズ（UUID = 36 ASCII バイト）
+export const FILE_ID_HEADER_SIZE = 36;
 
 // ファイルメタデータ（DataChannel プロトコル）
 export interface FileMetadata {

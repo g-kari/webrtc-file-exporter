@@ -2,12 +2,13 @@
 
 import type { PeerConnection } from './webrtc';
 import type { FileMetadata, FileChunkAck } from '../types';
+import { FILE_ID_HEADER_SIZE } from '../types';
+import { createLogger } from './logger';
+
+const { log } = createLogger('FileSender');
 
 const CHUNK_SIZE = 64 * 1024; // 64KB
 const BUFFER_THRESHOLD = 256 * 1024; // 256KB
-
-/** バイナリフレームのヘッダーサイズ（UUID = 36 ASCII バイト） */
-export const FILE_ID_HEADER_SIZE = 36;
 
 // モジュールスコープで一度だけ生成（チャンクごとの生成コストを削減）
 const TEXT_ENCODER = new TextEncoder();
@@ -30,6 +31,8 @@ export class FileSender {
     fileId: string,
     onProgress: (transferred: number) => void
   ): Promise<void> {
+    log(`送信開始: ${file.name} (${file.size} bytes) fileId=${fileId}`);
+
     // メタデータ送信
     const metadata: FileMetadata = {
       type: 'file-start',
@@ -57,5 +60,6 @@ export class FileSender {
     // 完了通知
     const ack: FileChunkAck = { type: 'file-end', fileId };
     this.pc.send(JSON.stringify(ack));
+    log(`送信完了: ${file.name} fileId=${fileId}`);
   }
 }

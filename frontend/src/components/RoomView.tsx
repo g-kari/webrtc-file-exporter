@@ -20,6 +20,14 @@ export default function RoomView({ roomId }: Props) {
 
   return (
     <div className="flex flex-col gap-6">
+      <div>
+        <button
+          onClick={() => { window.location.hash = ''; }}
+          className="text-sm text-gray-400 hover:text-white transition-colors"
+        >
+          ← トップへ戻る
+        </button>
+      </div>
       <ConnectionStatus wsState={wsState} rtcState={rtcState} />
 
       {wsState === 'room-full' && <RoomFullBanner />}

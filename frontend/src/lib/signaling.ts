@@ -1,20 +1,19 @@
 // WebSocket シグナリングクライアント
 
-import type { SignalingMessage } from '../types';
+import type { SignalingMessage, OutgoingSignalingMessage } from '../types';
+import { createLogger } from './logger';
 
-const log = (...args: unknown[]) => {
-  if (import.meta.env.DEV) console.log(`[Signaling ${new Date().toISOString()}]`, ...args);
-};
-const warn = (...args: unknown[]) =>
-  console.warn(`[Signaling ${new Date().toISOString()}]`, ...args);
+const { log, warn } = createLogger('Signaling');
 
-type MessageHandler = (message: SignalingMessage) => void;
+type MessageHandler = (message: SignalingMessage) => void | Promise<void>;
 
 export class SignalingClient {
   private ws: WebSocket | null = null;
-  private messageHandlers: MessageHandler[] = [];
-  private closeHandlers: (() => void)[] = [];
-  private roomFullHandlers: (() => void)[] = [];
+  private messageCallback: MessageHandler | null = null;
+  private closeCallback: (() => void) | null = null;
+  private roomFullCallback: (() => void) | null = null;
+  /** disconnect() による意図的切断フラグ（onclose での closeCallback 発火を抑制） */
+  private disconnecting = false;
 
   constructor(private readonly roomId: string) {}
 
@@ -48,57 +47,57 @@ export class SignalingClient {
           const raw = JSON.parse(event.data) as { type: string };
           log('受信 ←', raw.type, JSON.stringify(raw));
           if (raw.type === 'room-full') {
-            this.roomFullHandlers.forEach((h) => h());
+            this.roomFullCallback?.();
             return;
           }
           const message = raw as unknown as SignalingMessage;
-          this.messageHandlers.forEach((h) => {
-            Promise.resolve(h(message)).catch((e: unknown) => {
+          if (this.messageCallback) {
+            Promise.resolve(this.messageCallback(message)).catch((e: unknown) => {
               warn('onMessage ハンドラエラー:', e);
             });
-          });
+          }
         } catch {
           warn('JSON パース失敗:', event.data);
         }
       };
       this.ws.onclose = (e) => {
         log('WS 切断 code:', e.code, 'reason:', e.reason);
-        // 接続確立後の切断のみ closeHandlers を発火
-        if (settled) {
-          this.closeHandlers.forEach((h) => h());
+        // 接続確立後かつ意図的切断でない場合のみ closeCallback を発火
+        if (settled && !this.disconnecting) {
+          this.closeCallback?.();
         }
       };
     });
   }
 
   /** シグナリングメッセージを送信する */
-  send(message: object): void {
-    const msg = message as { type?: string };
+  send(message: OutgoingSignalingMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      log('送信 →', msg.type, JSON.stringify(message));
+      log('送信 →', message.type, JSON.stringify(message));
       this.ws.send(JSON.stringify(message));
     } else {
-      warn('送信失敗（WS未接続）:', msg.type);
+      warn('送信失敗（WS未接続）:', message.type);
     }
   }
 
   /** メッセージ受信ハンドラを登録する */
   onMessage(handler: MessageHandler): void {
-    this.messageHandlers.push(handler);
+    this.messageCallback = handler;
   }
 
   /** 切断ハンドラを登録する */
   onClose(handler: () => void): void {
-    this.closeHandlers.push(handler);
+    this.closeCallback = handler;
   }
 
   /** ルーム満員ハンドラを登録する */
   onRoomFull(handler: () => void): void {
-    this.roomFullHandlers.push(handler);
+    this.roomFullCallback = handler;
   }
 
   /** 接続を切断する */
   disconnect(): void {
+    this.disconnecting = true;
     this.ws?.close();
     this.ws = null;
   }

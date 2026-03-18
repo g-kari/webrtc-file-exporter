@@ -24,8 +24,20 @@ export class SignalingRoom extends DurableObject {
   // 接続中のピアリスト（peerId → WebSocket）
   private peers: Map<string, WebSocket> = new Map();
 
+  private get logPrefix(): string {
+    return `[DO ${new Date().toISOString()}] peers=${this.peers.size}`;
+  }
+
   private log(...args: unknown[]): void {
-    console.log(`[DO ${new Date().toISOString()}] peers=${this.peers.size}`, ...args);
+    console.log(this.logPrefix, ...args);
+  }
+
+  private warn(...args: unknown[]): void {
+    console.warn(this.logPrefix, ...args);
+  }
+
+  private error(...args: unknown[]): void {
+    console.error(this.logPrefix, ...args);
   }
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -41,19 +53,12 @@ export class SignalingRoom extends DurableObject {
   }
 
   // WebSocket 接続を受け付ける
-  async fetch(request: Request): Promise<Response> {
-    const activePeers = this.ctx.getWebSockets();
-    this.log(`fetch — 現在の接続数: ${activePeers.length}`);
+  fetch(request: Request): Response {
+    const wsCount = this.ctx.getWebSockets().length;
+    this.log(`fetch — 現在の接続数: ${wsCount}`);
 
-    // ルーム満員チェック
-    if (activePeers.length >= MAX_ROOM_PEERS) {
-      this.log("ルーム満員 → accept して room-full 送信後 close");
-      const pair = new WebSocketPair();
-      const [client, server] = Object.values(pair);
-      this.ctx.acceptWebSocket(server);
-      server.send(JSON.stringify({ type: "room-full" }));
-      server.close(4003, "ルームが満員です");
-      return new Response(null, { status: 101, webSocket: client });
+    if (wsCount >= MAX_ROOM_PEERS) {
+      return this.rejectRoomFull();
     }
 
     const pair = new WebSocketPair();
@@ -63,21 +68,29 @@ export class SignalingRoom extends DurableObject {
     server.serializeAttachment({ peerId: "" } satisfies PeerAttachment);
     this.log("WebSocket acceptWebSocket 完了");
 
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-    });
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  // ルーム満員時に room-full を送信して接続を拒否する
+  private rejectRoomFull(): Response {
+    this.log("ルーム満員 → accept して room-full 送信後 close");
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server);
+    server.send(JSON.stringify({ type: "room-full" }));
+    server.close(4003, "ルームが満員です");
+    return new Response(null, { status: 101, webSocket: client });
   }
 
   // WebSocket メッセージ受信ハンドラ
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     if (typeof message !== "string") return;
 
     let data: SignalingMessage;
     try {
       data = JSON.parse(message) as SignalingMessage;
     } catch {
-      console.warn("[DO] JSON パース失敗:", message);
+      this.warn("JSON パース失敗:", message);
       return;
     }
 
@@ -116,12 +129,12 @@ export class SignalingRoom extends DurableObject {
       case "ice-candidate": {
         // SDP サイズ上限チェック（64KB）：巨大ペイロードによるメモリ枯渇を防ぐ
         if (data.sdp && JSON.stringify(data.sdp).length > 65536) {
-          console.warn("[DO] SDP が大きすぎます — 中継を拒否");
+          this.warn("SDP が大きすぎます — 中継を拒否");
           break;
         }
         // ICE candidate サイズ上限チェック（4KB）
         if (data.candidate && JSON.stringify(data.candidate).length > 4096) {
-          console.warn("[DO] ICE candidate が大きすぎます — 中継を拒否");
+          this.warn("ICE candidate が大きすぎます — 中継を拒否");
           break;
         }
         let relayCount = 0;
@@ -137,11 +150,8 @@ export class SignalingRoom extends DurableObject {
 
       case "leave": {
         if (currentPeerId) {
-          this.peers.delete(currentPeerId);
+          this.removePeerAndNotify(ws);
           this.log(`leave peerId=${currentPeerId} / 残り: ${this.peers.size}`);
-          for (const peerWs of this.peers.values()) {
-            peerWs.send(JSON.stringify({ type: "leave", peerId: currentPeerId }));
-          }
           ws.close(1000, "leave");
         }
         break;
@@ -150,31 +160,33 @@ export class SignalingRoom extends DurableObject {
   }
 
   // WebSocket 切断ハンドラ
-  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
-    const attachment = ws.deserializeAttachment() as PeerAttachment | null;
-    const peerId = attachment?.peerId ?? "";
+  webSocketClose(ws: WebSocket, code: number, reason: string): void {
+    const peerId = this.removePeerAndNotify(ws);
     this.log(`WS切断 peerId=${peerId || "(未join)"} code=${code} reason=${reason}`);
-
-    if (peerId && this.peers.has(peerId)) {
-      this.peers.delete(peerId);
-      for (const peerWs of this.peers.values()) {
-        peerWs.send(JSON.stringify({ type: "leave", peerId }));
-      }
-    }
   }
 
   // WebSocket エラーハンドラ
-  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    const attachment = ws.deserializeAttachment() as PeerAttachment | null;
-    const peerId = attachment?.peerId ?? "";
-    console.error(`[DO] WebSocket エラー peerId=${peerId || "(未join)"}:`, error);
+  webSocketError(ws: WebSocket, error: unknown): void {
     // webSocketClose が自動呼び出しされない場合に備えてピアを解放する
     // peers.has() チェックにより webSocketClose との二重実行を防ぐ
+    const peerId = this.removePeerAndNotify(ws);
+    this.error(`WebSocket エラー peerId=${peerId || "(未join)"}:`, error);
+  }
+
+  /**
+   * ピアを peers マップから削除し、残りのピアに leave を通知する。
+   * peers.has() チェックにより webSocketClose / webSocketError の二重実行を防ぐ。
+   * @returns 削除されたピアの peerId（未 join または二重呼び出しの場合は空文字）
+   */
+  private removePeerAndNotify(ws: WebSocket): string {
+    const attachment = ws.deserializeAttachment() as PeerAttachment | null;
+    const peerId = attachment?.peerId ?? "";
     if (peerId && this.peers.has(peerId)) {
       this.peers.delete(peerId);
       for (const peerWs of this.peers.values()) {
         peerWs.send(JSON.stringify({ type: "leave", peerId }));
       }
     }
+    return peerId;
   }
 }
