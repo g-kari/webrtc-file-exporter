@@ -14,8 +14,9 @@ async function fetchIceServers(): Promise<RTCIceServer[]> {
       const data = await res.json() as { iceServers?: RTCIceServer[] };
       if (Array.isArray(data.iceServers)) return data.iceServers;
     }
-  } catch {
-    // STUN のみで続行
+    warn('TURN 取得失敗（HTTP status:', res.status, '）— STUN のみで続行');
+  } catch (e) {
+    warn('TURN 取得例外:', e, '— STUN のみで続行');
   }
   return [{ urls: 'stun:stun.cloudflare.com:3478' }];
 }
