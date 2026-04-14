@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import RoomCreate from './components/RoomCreate';
 import RoomView from './components/RoomView';
+import { ToastProvider } from './hooks/useToast';
 
 function getRoomIdFromHash(): string | null {
   const hash = window.location.hash;
@@ -8,7 +9,7 @@ function getRoomIdFromHash(): string | null {
   return match ? match[1] : null;
 }
 
-export default function App() {
+function AppContent() {
   const [roomId, setRoomId] = useState<string | null>(getRoomIdFromHash());
 
   useEffect(() => {
@@ -26,5 +27,13 @@ export default function App() {
         {roomId ? <RoomView roomId={roomId} /> : <RoomCreate />}
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppContent />
+    </ToastProvider>
   );
 }

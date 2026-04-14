@@ -1,9 +1,9 @@
 // ファイル送信：チャンク分割 + バックプレッシャー制御
 
-import type { PeerConnection } from './webrtc';
-import type { FileMetadata, FileEndMessage } from '../types';
+import type { FileEndMessage, FileMetadata } from '../types';
 import { FILE_ID_HEADER_SIZE } from '../types';
 import { createLogger } from './logger';
+import type { PeerConnection } from './webrtc';
 
 const { log } = createLogger('FileSender');
 
@@ -26,11 +26,7 @@ export class FileSender {
   constructor(private readonly pc: PeerConnection) {}
 
   /** ファイルを送信する */
-  async send(
-    file: File,
-    fileId: string,
-    onProgress: (transferred: number) => void
-  ): Promise<void> {
+  async send(file: File, fileId: string, onProgress: (transferred: number) => void): Promise<void> {
     log(`送信開始: ${file.name} (${file.size} bytes) fileId=${fileId}`);
 
     // メタデータ送信

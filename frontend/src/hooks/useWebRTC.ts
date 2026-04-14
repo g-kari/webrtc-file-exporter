@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
-import type { ConnectionState } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import { createLogger } from '../lib/logger';
 import { SignalingClient } from '../lib/signaling';
 import { PeerConnection } from '../lib/webrtc';
-import { createLogger } from '../lib/logger';
+import type { ConnectionState } from '../types';
 
 const { warn } = createLogger('useWebRTC');
 
@@ -11,7 +11,7 @@ async function fetchIceServers(): Promise<RTCIceServer[]> {
   try {
     const res = await fetch('/api/turn-credentials');
     if (res.ok) {
-      const data = await res.json() as { iceServers?: RTCIceServer[] };
+      const data = (await res.json()) as { iceServers?: RTCIceServer[] };
       if (Array.isArray(data.iceServers)) return data.iceServers;
     }
     warn('TURN 取得失敗（HTTP status:', res.status, '）— STUN のみで続行');
@@ -56,7 +56,9 @@ export function useWebRTC(
           if (!cancelled) setRtcState('connected');
           onDataChannelOpenRef.current(pc);
         });
-        pc.onClose(() => { if (!cancelled) setRtcState('disconnected'); });
+        pc.onClose(() => {
+          if (!cancelled) setRtcState('disconnected');
+        });
         setRtcState('connecting');
         return pc;
       };

@@ -27,14 +27,16 @@ type ParsedControlMessage = { type: string; fileId: string } & Partial<FileMetad
 
 /** file-start メッセージの必須フィールドを検証する型ガード */
 function isValidFileStart(
-  msg: { type: string; fileId: string } & Partial<FileMetadata>
+  msg: { type: string; fileId: string } & Partial<FileMetadata>,
 ): msg is FileMetadata {
   return (
-    typeof msg.fileId === 'string' && msg.fileId !== '' &&
+    typeof msg.fileId === 'string' &&
+    msg.fileId !== '' &&
     typeof msg.name === 'string' &&
     typeof msg.size === 'number' &&
     // 負数・非有限値・小数を拒否
-    Number.isFinite(msg.size) && msg.size >= 0 &&
+    Number.isFinite(msg.size) &&
+    msg.size >= 0 &&
     typeof msg.mimeType === 'string' &&
     msg.size <= MAX_FILE_SIZE
   );
@@ -84,7 +86,9 @@ export class FileReceiver {
 
       // 受信バイト数がメタデータのサイズと一致しない場合は不完全転送として破棄
       if (file.received !== file.metadata.size) {
-        warn(`受信バイト数不一致 fileId=${fileId} received=${file.received} expected=${file.metadata.size} — 破棄`);
+        warn(
+          `受信バイト数不一致 fileId=${fileId} received=${file.received} expected=${file.metadata.size} — 破棄`,
+        );
         this.receivingFiles.delete(fileId);
         return;
       }
@@ -110,7 +114,9 @@ export class FileReceiver {
 
     // 宣言サイズ超過チェック：悪意ある相手による無制限データ送信を防ぐ
     if (file.received + chunk.byteLength > file.metadata.size + 1024) {
-      warn(`サイズ超過チェック失敗 fileId=${fileId} received=${file.received} chunk=${chunk.byteLength}`);
+      warn(
+        `サイズ超過チェック失敗 fileId=${fileId} received=${file.received} chunk=${chunk.byteLength}`,
+      );
       return;
     }
 

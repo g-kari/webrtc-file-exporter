@@ -1,6 +1,6 @@
 // WebSocket シグナリングクライアント
 
-import type { SignalingMessage, OutgoingSignalingMessage } from '../types';
+import type { OutgoingSignalingMessage, SignalingMessage } from '../types';
 import { createLogger } from './logger';
 
 const { log, warn } = createLogger('Signaling');

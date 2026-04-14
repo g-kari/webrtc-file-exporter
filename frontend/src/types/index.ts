@@ -1,12 +1,7 @@
 // 共通型定義
 
 // 接続状態
-export type ConnectionState =
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | 'room-full'
-  | 'failed';
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'room-full' | 'failed';
 
 // ファイル転送状態
 export type TransferState = 'pending' | 'transferring' | 'completed' | 'error';
@@ -42,6 +37,13 @@ export type OutgoingSignalingMessage =
   | { type: 'offer'; sdp: RTCSessionDescriptionInit }
   | { type: 'answer'; sdp: RTCSessionDescriptionInit }
   | { type: 'ice-candidate'; candidate: RTCIceCandidateInit };
+
+// テキストクリップ DataChannel メッセージ
+export interface TextClipMessage {
+  type: 'text-clip';
+  clipId: string;
+  text: string;
+}
 
 // DataChannel バイナリフレームのヘッダーサイズ（UUID = 36 ASCII バイト）
 export const FILE_ID_HEADER_SIZE = 36;

@@ -20,7 +20,7 @@ export class PeerConnection {
 
   constructor(
     iceServers: RTCIceServer[],
-    private readonly onIceCandidate: (candidate: RTCIceCandidateInit) => void
+    private readonly onIceCandidate: (candidate: RTCIceCandidateInit) => void,
   ) {
     log('PeerConnection 生成', { iceServers });
     this.pc = new RTCPeerConnection({ iceServers });
@@ -84,11 +84,14 @@ export class PeerConnection {
       // 使用中の ICE candidate ペアを表示（開発時のみ）
       if (import.meta.env.DEV) {
         void this.pc.getStats().then((stats) => {
-          stats.forEach((report) => {
-            if (report.type === 'candidate-pair' && (report as RTCIceCandidatePairStats).state === 'succeeded') {
+          for (const report of stats.values()) {
+            if (
+              report.type === 'candidate-pair' &&
+              (report as RTCIceCandidatePairStats).state === 'succeeded'
+            ) {
               log('使用中の candidate-pair:', JSON.stringify(report));
             }
-          });
+          }
         });
       }
       this.openCallback?.();
@@ -194,10 +197,19 @@ export class PeerConnection {
         dc.removeEventListener('error', onError);
       };
 
-      const onLow = () => { cleanup(); resolve(); };
+      const onLow = () => {
+        cleanup();
+        resolve();
+      };
       // DataChannel が転送中に閉じた場合はエラーとして扱う（正常完了ではない）
-      const onClose = () => { cleanup(); reject(new Error('DataChannel が転送中に閉じました')); };
-      const onError = (e: Event) => { cleanup(); reject(e); };
+      const onClose = () => {
+        cleanup();
+        reject(new Error('DataChannel が転送中に閉じました'));
+      };
+      const onError = (e: Event) => {
+        cleanup();
+        reject(e);
+      };
 
       dc.addEventListener('bufferedamountlow', onLow);
       dc.addEventListener('close', onClose);

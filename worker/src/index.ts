@@ -1,7 +1,7 @@
 // Cloudflare Worker エントリポイント
 
-import { generateTurnCredentials } from "./turn";
 import { SignalingRoom } from "./signaling-room";
+import { generateTurnCredentials } from "./turn";
 
 // Worker の環境変数型定義
 export interface Env {
@@ -19,17 +19,19 @@ export default {
     const url = new URL(request.url);
     const reqId = crypto.randomUUID().slice(0, 8);
 
-    console.log(`[Worker ${reqId}] ${request.method} ${url.pathname} cf=${JSON.stringify(request.cf?.colo)}`);
+    console.log(
+      `[Worker ${reqId}] ${request.method} ${url.pathname} cf=${JSON.stringify(request.cf?.colo)}`,
+    );
 
     // CORS ヘッダー設定（同一オリジンのみ許可）
     const ownOrigin = `${url.protocol}//${url.host}`;
     const requestOrigin = request.headers.get("Origin");
-    const corsOrigin = (!requestOrigin || requestOrigin === ownOrigin) ? ownOrigin : null;
+    const corsOrigin = !requestOrigin || requestOrigin === ownOrigin ? ownOrigin : null;
 
     const corsHeaders: Record<string, string> = {
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
-      "Vary": "Origin",
+      Vary: "Origin",
     };
     if (corsOrigin) {
       corsHeaders["Access-Control-Allow-Origin"] = corsOrigin;
@@ -48,10 +50,7 @@ export default {
     if (url.pathname === "/api/turn-credentials" && request.method === "GET") {
       console.log(`[Worker ${reqId}] TURN クレデンシャル生成開始`);
       try {
-        const credentials = await generateTurnCredentials(
-          env.TURN_KEY_ID,
-          env.TURN_KEY_API_TOKEN
-        );
+        const credentials = await generateTurnCredentials(env.TURN_KEY_ID, env.TURN_KEY_API_TOKEN);
         console.log(`[Worker ${reqId}] TURN クレデンシャル生成完了`);
         return new Response(JSON.stringify(credentials), {
           headers: {
@@ -62,10 +61,10 @@ export default {
         });
       } catch (error) {
         console.error(`[Worker ${reqId}] TURN クレデンシャル取得エラー:`, error);
-        return new Response(
-          JSON.stringify({ error: "TURN クレデンシャルの取得に失敗しました" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return new Response(JSON.stringify({ error: "TURN クレデンシャルの取得に失敗しました" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
     }
 

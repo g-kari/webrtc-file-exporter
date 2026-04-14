@@ -7,7 +7,7 @@ export interface TurnCredentials {
 // Cloudflare Calls から TURN クレデンシャルを取得する
 export async function generateTurnCredentials(
   turnKeyId: string,
-  turnKeyApiToken: string
+  turnKeyApiToken: string,
 ): Promise<TurnCredentials> {
   const response = await fetch(
     `https://rtc.live.cloudflare.com/v1/turn/keys/${turnKeyId}/credentials/generate-ice-servers`,
@@ -18,7 +18,7 @@ export async function generateTurnCredentials(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ ttl: 3600 }),
-    }
+    },
   );
 
   if (!response.ok) {

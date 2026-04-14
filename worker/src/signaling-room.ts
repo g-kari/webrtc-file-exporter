@@ -181,7 +181,7 @@ export class SignalingRoom extends DurableObject {
     try {
       ws.send(message);
     } catch (e) {
-      this.warn('WebSocket.send() 失敗（相手切断？）:', e);
+      this.warn("WebSocket.send() 失敗（相手切断？）:", e);
     }
   }
 
