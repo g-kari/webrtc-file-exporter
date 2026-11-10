@@ -19,7 +19,10 @@ function formatBytes(bytes: number): string {
 function FilePreview({
   file,
   onClickImage,
-}: { file: TransferFile; onClickImage: (src: string, name: string) => void }) {
+}: {
+  file: TransferFile;
+  onClickImage: (src: string, name: string) => void;
+}) {
   if (!file.blobUrl) return null;
   const t = file.type;
   const blobUrl = file.blobUrl;

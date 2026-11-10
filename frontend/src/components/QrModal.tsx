@@ -24,7 +24,9 @@ export default function QrModal({ url, open, onClose }: Props) {
     <div
       role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
       onKeyDown={(e) => {
         if (e.key === 'Escape') onClose();
       }}
@@ -32,8 +34,6 @@ export default function QrModal({ url, open, onClose }: Props) {
       <div
         role="presentation"
         className="relative rounded-2xl bg-white p-6 flex flex-col items-center gap-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
       >
         <button
           type="button"

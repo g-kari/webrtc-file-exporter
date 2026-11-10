@@ -11,7 +11,9 @@ export default function ImageModal({ src, alt, onClose }: Props) {
     <div
       role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
       onKeyDown={(e) => {
         if (e.key === 'Escape') onClose();
       }}
@@ -28,8 +30,6 @@ export default function ImageModal({ src, alt, onClose }: Props) {
         src={src}
         alt={alt ?? ''}
         className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
       />
     </div>
   );
