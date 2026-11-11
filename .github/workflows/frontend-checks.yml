@@ -25,8 +25,17 @@ jobs:
           node-version: '24.19.0'
           package-manager-cache: false
       - name: Install locked dependencies
+        id: install
         run: npm ci --no-audit --no-fund
-      - name: Check types, lint, formatting, and tests
-        run: npm run check
+      - name: Check TypeScript
+        run: npm run type-check
+      # 各検証を独立して実行する。どれかが失敗すればジョブ全体も失敗する。
+      - name: Check lint and formatting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: ./node_modules/.bin/biome check ./src
+      - name: Test frontend
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test
       - name: Build frontend
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build

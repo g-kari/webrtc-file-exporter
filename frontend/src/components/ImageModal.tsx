@@ -1,3 +1,5 @@
+import Modal from './Modal';
+
 interface Props {
   src: string | null;
   alt?: string;
@@ -8,20 +10,11 @@ export default function ImageModal({ src, alt, onClose }: Props) {
   if (!src) return null;
 
   return (
-    <div
-      role="presentation"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-      }}
-    >
+    <Modal label="画像プレビュー" onClose={onClose}>
       <button
         type="button"
         onClick={onClose}
-        className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl leading-none"
+        className="fixed top-4 right-4 text-white/70 hover:text-white text-2xl leading-none"
         aria-label="閉じる"
       >
         ✕
@@ -31,6 +24,6 @@ export default function ImageModal({ src, alt, onClose }: Props) {
         alt={alt ?? ''}
         className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
       />
-    </div>
+    </Modal>
   );
 }

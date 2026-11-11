@@ -1,5 +1,6 @@
 import QRCode from 'qrcode';
 import { useEffect, useRef } from 'react';
+import Modal from './Modal';
 
 interface Props {
   url: string;
@@ -21,20 +22,8 @@ export default function QrModal({ url, open, onClose }: Props) {
   if (!open) return null;
 
   return (
-    <div
-      role="presentation"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-      }}
-    >
-      <div
-        role="presentation"
-        className="relative rounded-2xl bg-white p-6 flex flex-col items-center gap-4 shadow-2xl"
-      >
+    <Modal label="共有用QRコード" onClose={onClose}>
+      <div className="relative rounded-2xl bg-white p-6 flex flex-col items-center gap-4 shadow-2xl">
         <button
           type="button"
           onClick={onClose}
@@ -46,6 +35,6 @@ export default function QrModal({ url, open, onClose }: Props) {
         <canvas ref={canvasRef} />
         <p className="text-xs text-gray-500 break-all max-w-[240px] text-center">{url}</p>
       </div>
-    </div>
+    </Modal>
   );
 }
