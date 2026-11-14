@@ -13,9 +13,26 @@ WebRTC DataChannel を使ったブラウザ間 P2P ファイル転送アプリ�
 
 ### 必要環境
 
-- Node.js v18 以上
+- Node.js v24.19.0（CI とローカル検証で使用）
 - Cloudflare アカウント
 - Wrangler CLI (`npm install -g wrangler`)
+
+### セキュリティ更新の検証
+
+Vite の最小バージョンは 6.4.6 です。2026-11-09 公開直後の版ですが、
+[GHSA-p4f5-76q4-ffq7](https://github.com/vitejs/vite/security/advisories/GHSA-p4f5-76q4-ffq7)
+の修正を含むため、今回は通常の安定化待機よりセキュリティ修正を優先する候補とします。
+6.4.4 は [GHSA-8g5g-mxqh-grgj](https://github.com/vitejs/vite/security/advisories/GHSA-8g5g-mxqh-grgj)
+の対象なので採用しません。依存更新時は frontend で `npm ci`、`npm run check`、
+`npm run build` を実行してください。
+
+### モーダルの検証
+
+画像プレビューと QR モーダルは、名前付きのネイティブ `dialog` を `showModal()` で開きます。
+`npm test` では表示・非表示、閉じるボタン、背景クリック、`cancel` / `close` イベント、
+再表示と StrictMode の再セットアップを確認します。jsdom の未実装 API を模擬しているため、
+実ブラウザでのフォーカス移動・復帰、Tab の範囲、Esc の既定動作、背景の inert、
+表示位置や背景色を検証したことにはなりません。これらはブラウザで別途確認してください。
 
 ### インストール
 
